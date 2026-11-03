@@ -22,13 +22,17 @@ Opens standing inside the capture, in walk mode.
 | | |
 |---|---|
 | drag | look around |
-| `W` `A` `S` `D` | walk; `E`/`space` up, `Q`/`shift` down |
+| `W` `A` `S` `D` | walk; `E`/`space` up, `Q`/`C` down |
 | `F` | switch between walk and orbit; in orbit, drag to turn, scroll to zoom, right-drag to pan |
 | `R` | back to the opening pose |
 | `H` | show or hide the readout |
 
 Walk mode takes pointer lock when the browser allows it, and falls back to
 look-while-dragging when it does not — inside an iframe, for example.
+
+Keystrokes carrying cmd, ctrl or alt are ignored, so system and browser
+shortcuts do not drive the camera. Shift is deliberately unbound for the same
+reason.
 
 ## Configuration
 
@@ -47,7 +51,11 @@ and then written into the file.
 | `pitchRange` | `?minPitch=` `?maxPitch=` | degrees above the horizon the orbit may reach |
 | `start.mode` | `?start=` | `pov` opens inside, `orbit` opens outside |
 | `start.eyeHeight` | `?eyeHeight=` | lifts the opening eye above `start.position` |
+| `start.position` | `?from=x,y,z` | where the opening eye stands (before `eyeHeight`) |
+| `start.lookAt` | `?to=x,y,z` | what it looks at (before `eyeHeight`) |
 | `framing` | `?distance=` `?elevation=` `?azimuth=` | the orbit opening shot |
+| `extEncoding` | `?ext=0` | extended splat encoding (see below); on by default |
+| `sortRadial` | `?sortRadial=0` | sort by Z-depth instead of radial distance |
 | `splatBudget` | `?splatBudget=` | splats per frame while moving; 0 uses Spark's own default |
 | `idleSplatBudget` | `?idleSplatBudget=` | splats per frame once still; 0 disables refinement |
 | `idleDelay` | `?idleDelay=` | seconds of stillness before refining |
@@ -126,6 +134,31 @@ different errors:
   known dimensions — here a wrong axis put the height across the width.
 - *Looking at it* catches a capture standing on its head, which the extent
   cannot: an upright capture and an inverted one have identical bounds.
+
+**Precision falls off with distance from the origin.** Spark's compact
+default encoding stores splat centres as half floats, so the quantisation step
+is relative to the size of the coordinate, not the distance from the camera.
+Measured on this capture:
+
+| distance from origin | position grid |
+|---|---|
+| 2 m | 0.98 mm |
+| 35 m | 31.25 mm |
+
+Both are exact powers of two, which is the half-float signature. At the far end
+of a forty-three metre vehicle that snapped every splat centre onto a
+three-centimetre lattice: posters there smeared into stripes and their text
+became unreadable, while the identical posters by the door stayed sharp.
+
+`extEncoding: true` loads the capture with Spark's extended encoding instead,
+which puts the grid at 0.004 mm throughout. Roughly double the position memory,
+no measurable change in frame time or LoD build time. `?ext=0` shows the old
+behaviour.
+
+Note that this is a property of the viewer's encoding, not of the capture: the
+scan's own fine-detail density is near-uniform along the vehicle (86% of splats
+under 2 cm at the origin end, 83% at the far end, with the *middle* the
+coarsest at 68%).
 
 **Origin.** The file carries a deliberate origin and `origin: "data"` keeps it,
 so viewer coordinates are file coordinates. The capture's centre measures

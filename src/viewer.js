@@ -14,6 +14,13 @@ import { createControls } from "./controls.js";
 export function startViewer(scene) {
     const params = new URLSearchParams(location.search);
 
+    // "12,1.6,-0.4" to [12, 1.6, -0.4]; anything malformed is ignored.
+    function vec(text) {
+        if (!text) return null;
+        const parts = text.split(",").map(Number);
+        return parts.length === 3 && parts.every(Number.isFinite) ? parts : null;
+    }
+
     function num(name, fallback) {
         const value = parseFloat(params.get(name));
         return Number.isFinite(value) ? value : fallback;
@@ -41,8 +48,11 @@ export function startViewer(scene) {
         // See src/scene.js.
         start: {
             mode: params.get("start") || scene.start?.mode || "orbit",
-            position: scene.start?.position ?? [0, 0, 0],
-            lookAt: scene.start?.lookAt ?? [1, 0, 0],
+            // ?from=x,y,z and ?to=x,y,z stand the camera somewhere specific
+            // and point it somewhere specific, in world metres. For getting
+            // back to a spot that looked wrong without walking there.
+            position: vec(params.get("from")) ?? scene.start?.position ?? [0, 0, 0],
+            lookAt: vec(params.get("to")) ?? scene.start?.lookAt ?? [1, 0, 0],
             // Lifts the eye and what it looks at by the same amount, so the
             // view stays level. ?eyeHeight=1.6 stands the visitor up.
             eyeHeight: num("eyeHeight", scene.start?.eyeHeight ?? 0),
@@ -81,6 +91,21 @@ export function startViewer(scene) {
         // Multiplies that count. Left as a separate knob because it is the
         // one to sweep when hunting for the budget, with ?lodScale=0.5.
         lodScale: num("lodScale", scene.lodScale ?? 1),
+        // Extended encoding for the splats Spark passes through its own
+        // accumulator and pager. Spark's compact default encoding loses
+        // precision in proportion to how far a splat sits from the capture's
+        // origin, which is exactly the failure this scan would show: its
+        // coordinates run from one end of a forty-three metre vehicle to the
+        // other, so the far end is quantised far more coarsely than the near
+        // end. Spark's own note calls this "large internal position
+        // coordinates". ?ext=0 turns it off to compare.
+        extEncoding: params.get("ext") !== "0" && scene.extEncoding !== false,
+        // How splats are depth-sorted for blending. Spark defaults to radial
+        // — geometric distance from the viewpoint — which is stable as the
+        // view turns, but most captures are trained against Z-depth, and
+        // sorting by a different metric than the one a scene was trained with
+        // puts splats in the wrong blend order. 0 selects Z-depth.
+        sortRadial: params.get("sortRadial") !== "0" && scene.sortRadial !== false,
         // Minimum on-screen size, in pixels, of a splat the tree will pick.
         // Raising it towards 5 spends nothing on splats too small to see;
         // Spark's own note is that it is often indistinguishable.
@@ -162,13 +187,19 @@ export function startViewer(scene) {
     // Shared timer, so Spark's time-based work and the controls agree on dt.
     const timer = new THREE.Timer();
 
-    const spark = new SparkRenderer({ renderer, timer });
+    const spark = new SparkRenderer({
+        renderer,
+        timer,
+        accumExtSplats: CONFIG.extEncoding,
+        pagedExtSplats: CONFIG.extEncoding,
+    });
     // Assigned only when asked for: Spark picks its own per-platform count
     // when lodSplatCount is left undefined, and writing a 0 over it would be
     // read as a budget of none.
     if (CONFIG.splatBudget > 0) spark.lodSplatCount = CONFIG.splatBudget;
     spark.lodSplatScale = CONFIG.lodScale;
     spark.lodRenderScale = CONFIG.lodRenderScale;
+    spark.sortRadial = CONFIG.sortRadial;
     world3.add(spark);
 
     // -----------------------------------------------------------------------
@@ -236,6 +267,15 @@ export function startViewer(scene) {
 
     const splats = new SplatMesh({
         url: CONFIG.url,
+        // Extended encoding. Spark's compact default stores splat centres as
+        // half floats, whose precision is relative to the magnitude of the
+        // coordinate — so it degrades with distance from the capture's own
+        // origin. Measured on this scan: a 0.98 mm grid two metres from the
+        // origin, a 31 mm grid thirty-five metres away, both exact powers of
+        // two. At the far end of the tram that snaps every splat centre onto a
+        // three-centimetre lattice, which is what smears the posters there
+        // into stripes while the same posters near the door stay legible.
+        extSplats: CONFIG.extEncoding,
         // Build the level-of-detail tree in a background worker after loading.
         // This is the whole reason for Spark here: the capture is 6.2M splats
         // and a laptop draws a few hundred thousand of them, selected per
@@ -281,10 +321,17 @@ export function startViewer(scene) {
         wheel.fail(`Could not load ${CONFIG.url} — ${err.message || err}`);
     });
 
-    // With lod: true the splat data moves off packedSplats onto its
-    // .lodSplats, and packedSplats.numSplats reads 0, so check both.
+    // Where the splat data actually lives depends on two options. With
+    // lod: true it moves off packedSplats onto its .lodSplats, and
+    // packedSplats.numSplats reads 0; with extSplats: true it is on
+    // .extSplats instead. Miss one and fitWorld measures nothing, the bounds
+    // stay an empty box, and the framing and the roam limits quietly fall
+    // back to defaults — which is a hard failure to spot, because the capture
+    // still renders perfectly.
     function resolvePackedSplats(mesh) {
         const candidates = [
+            mesh.extSplats,
+            mesh.extSplats && mesh.extSplats.lodSplats,
             mesh.packedSplats,
             mesh.packedSplats && mesh.packedSplats.lodSplats,
         ];
@@ -549,6 +596,9 @@ export function startViewer(scene) {
         camera,
         spark,
         scene: world3,
+        splats,
+        world,
+        controls,
         invalidate,
         get state() {
             return { refined, lastChange, changes, elapsed: timer.getElapsed() };

@@ -127,6 +127,20 @@ export const TRAM = {
     // and the same number by a different route.
     splatBudget: 2500000,
 
+    // Load the capture with Spark's extended encoding. Its compact default
+    // stores splat centres as half floats, whose precision is relative to the
+    // size of the coordinate — so detail decays with distance from the
+    // capture's own origin, not from the camera. Measured on this scan: a
+    // 0.98 mm grid two metres out, a 31 mm grid at thirty-five. The far end
+    // of a forty-three metre vehicle therefore had every splat centre snapped
+    // onto a three-centimetre lattice, which smeared the posters there into
+    // stripes while the identical posters by the door stayed legible.
+    //
+    // Extended encoding puts that grid at 0.004 mm throughout, for about
+    // double the position memory and no measurable frame cost. ?ext=0 to see
+    // the difference.
+    extEncoding: true,
+
     // The budget to climb to once the view stops moving, and how long it has
     // to be still first.
     //

@@ -280,6 +280,18 @@ export function createControls({ camera, renderer, bounds, config }) {
     // -----------------------------------------------------------------------
 
     const onKeyDown = (event) => {
+        // A browser or system shortcut is not locomotion. Without this,
+        // cmd+shift+anything sinks the camera: the keydown still reaches the
+        // page, and a bare modifier read as a movement key is indistinguishable
+        // from someone asking to descend. Anything already held is dropped,
+        // because the keyup after a shortcut often never arrives — the window
+        // loses focus first, and the key stays down for ever.
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+            keys.clear();
+            velocity.set(0, 0, 0);
+            return;
+        }
+
         const key = event.key.toLowerCase();
         if (key === "f") {
             setMode(mode === "walk" ? "orbit" : "walk");
@@ -372,7 +384,8 @@ export function createControls({ camera, renderer, bounds, config }) {
         if (held("d", "arrowright")) desired.add(right);
         if (held("a", "arrowleft")) desired.sub(right);
         if (held("e", " ")) desired.y += 1;
-        if (held("q", "shift")) desired.y -= 1;
+        // Not shift: it is half of every shortcut on the machine.
+        if (held("q", "c")) desired.y -= 1;
 
         if (desired.lengthSq() > 0) {
             desired.normalize().multiplyScalar(config.walkSpeed);
@@ -403,6 +416,18 @@ export function createControls({ camera, renderer, bounds, config }) {
 
         reset,
         setMode,
+
+        // Put the camera somewhere specific, looking somewhere specific,
+        // without reloading. The query string can do this at load time with
+        // ?from= and ?to=; this is the same thing from the console, for
+        // sweeping around a spot that looked wrong.
+        aim(position, lookAt) {
+            const at = new THREE.Vector3().fromArray(lookAt);
+            camera.position.fromArray(position);
+            camera.lookAt(at);
+            orbit.target.copy(at);
+            syncWalkFromCamera();
+        },
 
         readout() {
             const distance = camera.position.distanceTo(orbit.target);
