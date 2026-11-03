@@ -23,6 +23,7 @@ Opens standing inside the capture, in walk mode.
 |---|---|
 | drag | look around |
 | `W` `A` `S` `D` | walk; `E`/`space` up, `Q`/`C` down |
+| double-tap `W` | run, while forward is held — 3x walking pace |
 | `F` | switch between walk and orbit; in orbit, drag to turn, scroll to zoom, right-drag to pan |
 | `R` | back to the opening pose |
 | `H` | show or hide the readout |
@@ -33,6 +34,11 @@ look-while-dragging when it does not — inside an iframe, for example.
 Keystrokes carrying cmd, ctrl or alt are ignored, so system and browser
 shortcuts do not drive the camera. Shift is deliberately unbound for the same
 reason.
+
+Double-tapping forward runs at three times walking pace — 1.4 m/s is right for
+looking at something and slow for crossing forty-three metres of it. The run
+lasts only while forward is held, so it cannot be left switched on, and the
+readout says `running` while it is active.
 
 ## Configuration
 
@@ -51,6 +57,8 @@ and then written into the file.
 | `pitchRange` | `?minPitch=` `?maxPitch=` | degrees above the horizon the orbit may reach |
 | `start.mode` | `?start=` | `pov` opens inside, `orbit` opens outside |
 | `start.eyeHeight` | `?eyeHeight=` | lifts the opening eye above `start.position` |
+| `sprintMultiplier` | `?sprint=` | how much faster a double-tapped forward runs |
+| `doubleTapMs` | `?doubleTapMs=` | how close the two taps must be |
 | `start.position` | `?from=x,y,z` | where the opening eye stands (before `eyeHeight`) |
 | `start.lookAt` | `?to=x,y,z` | what it looks at (before `eyeHeight`) |
 | `framing` | `?distance=` `?elevation=` `?azimuth=` | the orbit opening shot |

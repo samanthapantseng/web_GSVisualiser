@@ -25,6 +25,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 // straight up and down, where the view rolls and a mouse cannot recover it.
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
 
+// The keys that mean "forward", and so the ones a double tap can sprint on.
+const FORWARD_KEYS = ["w", "arrowup"];
+
 // Horizontal field of view, which the vertical one and the window's shape
 // decide between them. On a wide window it is the roomier of the two, which
 // is what lets a forty-three metre vehicle fit across the frame.
@@ -90,6 +93,12 @@ export function createControls({ camera, renderer, bounds, config }) {
     let yaw = 0;
     let pitch = 0;
     const keys = new Set();
+    // Double-tap-to-sprint. Tap forward, then press and hold it again within
+    // the window, and the second press runs: a forty-three metre vehicle is a
+    // long way at a walking pace. Releasing forward drops back to a walk, so
+    // the sprint cannot be left switched on by accident.
+    let sprinting = false;
+    let lastForwardTap = -Infinity;
     const velocity = new THREE.Vector3();
     const desired = new THREE.Vector3();
     const forward = new THREE.Vector3();
@@ -288,11 +297,21 @@ export function createControls({ camera, renderer, bounds, config }) {
         // loses focus first, and the key stays down for ever.
         if (event.metaKey || event.ctrlKey || event.altKey) {
             keys.clear();
+            sprinting = false;
             velocity.set(0, 0, 0);
             return;
         }
 
         const key = event.key.toLowerCase();
+
+        // keydown repeats while a key is held, so a press is only a new tap
+        // when the key was not already down — which is what `keys` records.
+        if (FORWARD_KEYS.includes(key) && !keys.has(key)) {
+            const now = performance.now();
+            if (now - lastForwardTap < config.doubleTapMs) sprinting = true;
+            lastForwardTap = now;
+        }
+
         if (key === "f") {
             setMode(mode === "walk" ? "orbit" : "walk");
             return;
@@ -304,11 +323,17 @@ export function createControls({ camera, renderer, bounds, config }) {
         }
         keys.add(key);
     };
-    const onKeyUp = (event) => keys.delete(event.key.toLowerCase());
+    const onKeyUp = (event) => {
+        const key = event.key.toLowerCase();
+        keys.delete(key);
+        // Let go of forward and the sprint is over, whatever else is held.
+        if (FORWARD_KEYS.includes(key)) sprinting = false;
+    };
     // Losing focus mid-push leaves a key down and the camera sliding away on
     // its own.
     const onBlur = () => {
         keys.clear();
+        sprinting = false;
         velocity.set(0, 0, 0);
     };
 
@@ -388,7 +413,10 @@ export function createControls({ camera, renderer, bounds, config }) {
         if (held("q", "c")) desired.y -= 1;
 
         if (desired.lengthSq() > 0) {
-            desired.normalize().multiplyScalar(config.walkSpeed);
+            const speed = sprinting
+                ? config.walkSpeed * config.sprintMultiplier
+                : config.walkSpeed;
+            desired.normalize().multiplyScalar(speed);
         }
 
         // Ramp towards the stick rather than snapping to it: a hard start and
@@ -432,7 +460,7 @@ export function createControls({ camera, renderer, bounds, config }) {
         readout() {
             const distance = camera.position.distanceTo(orbit.target);
             return mode === "walk"
-                ? `walk · ${velocity.length().toFixed(1)} m/s`
+                ? `walk${sprinting ? " · running" : ""} · ${velocity.length().toFixed(1)} m/s`
                 : `orbit · ${distance.toFixed(1)} m out`;
         },
 

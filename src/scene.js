@@ -164,8 +164,16 @@ export const TRAM = {
     totalSplats: 6246086,
 
     loading: "Loading the tram…",
+    // Double-tap W (or the up arrow) and hold to run. 1.4 m/s is a walking
+    // pace, which is right for looking at something and wrong for crossing
+    // forty-three metres of it; 3x covers the length in about ten seconds.
+    // Letting go of forward drops back to a walk.
+    sprintMultiplier: 3,
+    doubleTapMs: 300,
+
     hint:
-        "<strong>Drag</strong> to look · <strong>WASD</strong> to walk · " +
+        "<strong>Drag</strong> to look · <strong>WASD</strong> to walk " +
+        "(double-tap <strong>W</strong> to run) · " +
         "<strong>F</strong> orbits it from outside · <strong>R</strong> resets · " +
         "<strong>H</strong> toggles readout",
 };

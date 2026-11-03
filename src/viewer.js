@@ -77,6 +77,10 @@ export function startViewer(scene) {
         walkSpeed: num("walkSpeed", scene.walkSpeed ?? 1.4),
         accel: num("accel", scene.accel ?? 8),
         lookSpeed: num("lookSpeed", scene.lookSpeed ?? 0.0022),
+        // Double-tapping forward runs instead of walking: this multiplies
+        // walkSpeed, and doubleTapMs is how close the two taps must be.
+        sprintMultiplier: num("sprint", scene.sprintMultiplier ?? 3),
+        doubleTapMs: num("doubleTapMs", scene.doubleTapMs ?? 300),
         // How far outside the capture's own bounds walk mode may stray.
         roam: num("roam", scene.roam ?? 8),
 
