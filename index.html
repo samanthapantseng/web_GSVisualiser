@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>VBZ Flexity — Gaussian splat scan</title>
+        <meta
+            name="description"
+            content="A Gaussian splat scan of a VBZ Flexity tram, navigable in the browser."
+        />
+    </head>
+
+    <body>
+        <div id="app"></div>
+
+        <!-- Shown while the capture downloads, then hidden. Filled in by
+             src/loader.js; the caption comes from the scene entry, so no
+             scene is named here. -->
+        <div id="status" hidden></div>
+
+        <!-- Frame timing and splat count. Toggle with H. -->
+        <div id="hud" hidden>
+            <div id="hudHead">—</div>
+            <div id="hudDetail"></div>
+        </div>
+
+        <div id="hint" hidden></div>
+
+        <script type="module" src="/src/main.js"></script>
+    </body>
+</html>

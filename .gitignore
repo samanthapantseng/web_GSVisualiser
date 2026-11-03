@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.DS_Store
+*.log
+
+# Capture sources stay local; commit the converted .spz instead. A .ply
+# carries 68 bytes per splat against the .spz's ~14, and git keeps every
+# version of a binary for ever.
+public/data/*.ply

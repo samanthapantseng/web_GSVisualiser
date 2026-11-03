@@ -1,0 +1,204 @@
+:root {
+    color-scheme: dark;
+    --ink: #eef2f4;
+    --panel: rgba(10, 16, 20, 0.72);
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+    background: #0b0f12;
+    color: var(--ink);
+    font: 13px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+#app,
+#app canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+}
+
+/* The canvas is the control surface: a drag on it should orbit the tram, not
+   select the page behind it. */
+#app canvas {
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+}
+
+#app canvas:active {
+    cursor: grabbing;
+}
+
+#hud,
+#hint {
+    position: fixed;
+    z-index: 10;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+}
+
+#hud[hidden],
+#hint[hidden] {
+    display: none;
+}
+
+#hud {
+    top: 16px;
+    left: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+#hudHead {
+    font-size: 20px;
+    font-weight: 600;
+}
+
+#hudDetail {
+    opacity: 0.7;
+    white-space: pre;
+    font-size: 11px;
+    margin-top: 4px;
+}
+
+#hint {
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    max-width: max-content;
+    opacity: 0.75;
+}
+
+/* A phone has no keyboard, so the half of the hint about F, R and H is noise
+   on one — and the bar is wide enough there to crowd the view. */
+@media (max-width: 720px) {
+    #hint {
+        font-size: 12px;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   Loading wheel (src/loader.js). A full-screen overlay rather than a corner
+   chip: the capture is 86 MB, so the wait before anything appears is tens of
+   seconds on an ordinary connection and there is nothing else to look at yet.
+   --------------------------------------------------------------------------- */
+
+/* The hidden attribute works through a UA rule, which any author `display`
+   outranks — so the overlay has to say it itself or it stays up over the
+   scene for ever, opaque, once its work is done. */
+#status[hidden] {
+    display: none;
+}
+
+#status {
+    position: fixed;
+    inset: 0;
+    z-index: 15;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    background: radial-gradient(circle at 50% 45%, #18242c, #0b0f12 70%);
+    pointer-events: none;
+}
+
+.loader {
+    display: grid;
+    justify-items: center;
+    gap: 18px;
+    max-width: 420px;
+    text-align: center;
+}
+
+.loader-wheel {
+    position: relative;
+    width: 120px;
+    height: 120px;
+    display: grid;
+    place-items: center;
+}
+
+.loader-wheel svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    /* -90deg puts zero at twelve o'clock, where a dial is read from. */
+    transform: rotate(-90deg);
+}
+
+.loader-track,
+.loader-arc {
+    fill: none;
+    stroke-width: 6;
+    stroke-linecap: round;
+}
+
+.loader-track {
+    stroke: rgba(238, 242, 244, 0.12);
+}
+
+.loader-arc {
+    stroke: var(--ink);
+    /* 2 * PI * 52, matching r="52" and CIRCUMFERENCE in src/loader.js. The
+       dash lengths live here rather than inline, so the sweeping arc below
+       can override them — an inline dasharray would outrank it. */
+    stroke-dasharray: 326.726;
+    stroke-dashoffset: 326.726;
+    transition: stroke-dashoffset 220ms linear;
+}
+
+.loader-pct {
+    font-size: 26px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+}
+
+.loader-label {
+    margin: 0;
+    opacity: 0.6;
+}
+
+/* Nothing to measure: a short arc sweeping instead of a ring filling. The
+   dash transition has to go, or every wrap animates back round the circle. */
+.loader.is-indeterminate .loader-arc {
+    stroke-dasharray: 72 254.726;
+    stroke-dashoffset: 0;
+    transition: none;
+    transform-origin: 50% 50%;
+    animation: loader-spin 900ms linear infinite;
+}
+
+.loader.is-failed .loader-wheel {
+    display: none;
+}
+
+.loader.is-failed .loader-label {
+    opacity: 1;
+    max-width: 32em;
+}
+
+@keyframes loader-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* A spinner that does not move reports nothing, so slow it rather than stop
+   it. The determinate ring is already a single slow fill. */
+@media (prefers-reduced-motion: reduce) {
+    .loader.is-indeterminate .loader-arc {
+        animation-duration: 2.4s;
+    }
+}
