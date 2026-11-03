@@ -1,195 +1,135 @@
 # web_GSVisualiser
 
-A Gaussian splat scan of a VBZ Flexity tram, navigable in an ordinary browser.
-Built for a demo: someone at VBZ is sent a link, opens it on a laptop or a
-phone, and can turn the vehicle over and walk through it without installing
-anything.
+A browser viewer for a Gaussian splat capture, built on three.js and
+[Spark](https://sparkjs.dev/).
 
-Clickable compartments — a second scan of an opened panel fading in where the
-closed one was — are the point of the exercise and are **not** in yet. This is
-the viewer they will hang off.
+Desktop only. It assumes a mouse, a keyboard and a WebGL2 context, and is not
+built for phones or tablets.
 
-## Run it
+## Run
 
 ```
 npm install
 npm run dev
 ```
 
-Then open <http://localhost:5175>. The dev server also listens on the LAN, so
-a phone on the same wifi can open `http://<your-ip>:5175` — worth doing early,
-because the phone is where the budget problem below shows up first.
+<http://localhost:5175>. `npm run build` writes a static site to `dist/`.
 
-## Navigating
+## Controls
+
+Opens standing inside the capture, in walk mode.
 
 | | |
 |---|---|
-| drag | orbit |
-| scroll | zoom, towards the pointer |
-| right-drag | pan |
-| **F** | walk mode — mouse-look, `WASD`, `E`/`space` up, `Q`/`shift` down |
-| **R** | back to the opening frame, and back to orbit |
-| **H** | frame rate and splat count |
+| drag | look around |
+| `W` `A` `S` `D` | walk; `E`/`space` up, `Q`/`shift` down |
+| `F` | switch between walk and orbit; in orbit, drag to turn, scroll to zoom, right-drag to pan |
+| `R` | back to the opening pose |
+| `H` | show or hide the readout |
 
-The tram stays upright. OrbitControls pins the camera's own up to +Y, so the
-vehicle never rolls, and `pitchRange` stops the orbit at the horizon so it
-cannot carry on underneath and round the other side — which is what made it
-look as though the tram had tipped over. The default range is 0° to 70° above
-the horizon; `?minPitch=-20` lets you get under the bogies if an engineering
-question ever wants it.
+Walk mode takes pointer lock when the browser allows it, and falls back to
+look-while-dragging when it does not — inside an iframe, for example.
 
-Walk mode takes the pointer when it can. Embedded in an iframe it cannot —
-pointer lock is refused across documents — so it falls back to look-while-
-dragging, which is worse but works.
+## Configuration
+
+`src/scene.js` holds everything specific to the capture. Every field can be
+overridden from the query string, so a value can be found on a running page
+and then written into the file.
+
+| field | query | meaning |
+|---|---|---|
+| `url` | `?url=` | path to the `.spz`, relative to `public/` |
+| `upAxis` | `?upAxis=` | which data axis is up: `+x` `-x` `+y` `-y` `+z` `-z` |
+| `heading` | `?heading=` | degrees of yaw after the up-axis correction |
+| `worldHeight` | `?worldHeight=` | scale so the capture is this many metres tall; 0 keeps its own scale |
+| `origin` | `?origin=` | `data` keeps the file's origin as the world origin; `floor` recentres the capture |
+| `pivot` | `?pivot=` | what the orbit turns around: `centre` or `origin` |
+| `pitchRange` | `?minPitch=` `?maxPitch=` | degrees above the horizon the orbit may reach |
+| `start.mode` | `?start=` | `pov` opens inside, `orbit` opens outside |
+| `start.eyeHeight` | `?eyeHeight=` | lifts the opening eye above `start.position` |
+| `framing` | `?distance=` `?elevation=` `?azimuth=` | the orbit opening shot |
+| `splatBudget` | `?splatBudget=` | splats per frame; 0 uses Spark's own default |
+| `lodScale` | `?lodScale=` | multiplier on that budget |
+| `lodRenderScale` | `?lodRenderScale=` | minimum on-screen splat size, in pixels |
+| `maxFps` | `?maxFps=` | ceiling on redraws per second |
+| `pixelRatio` | `?pixelRatio=` | cap on device pixels per CSS pixel |
+| — | `?always=1` | redraw every frame instead of on change |
+| — | `?axes=1` | draw the world origin |
+| — | `?fpsLog=` | seconds between frame-timing lines on the console |
+
+## Performance
+
+The scene is static, so **the viewer redraws only when something changes** —
+the camera moved, Spark's level-of-detail tree streamed in new splats, or the
+window resized. A still view costs nothing: zero draw calls, idle GPU. This is
+the difference between a warm laptop and a hot one, and the readout shows
+`idle` rather than a frame rate when it applies.
+
+Levers, in the order worth reaching for:
+
+| | |
+|---|---|
+| `maxFps` | 60 by default. A static scene gains nothing from 120 beyond smoother dragging. |
+| `pixelRatio` | 2 by default. Cost scales with its square, so 1.5 is a large saving and 1 a larger one. |
+| `splatBudget` | 2,500,000 by default. Below about 1M the bodywork visibly thins. |
+| `lodRenderScale` | 1 by default. Towards 3–5 it skips splats too small to see. |
+
+Measured: about 70 redraws per second while moving through the interior,
+100–120 from outside. Interiors cost more because splats are fill-bound and a
+corridor puts the whole capture on screen at close range.
+
+**Frame counters inside an embedded preview pane are meaningless.** One will
+report 1 fps on a renderer spending 0.1 ms per frame, because the pane runs
+`requestAnimationFrame` at a trickle while `document.hidden` stays `false`.
+Read the frame rate in a real browser tab. `window.__gs` exposes the renderer,
+camera, scene, SparkRenderer and the `invalidate()` hook for measuring
+directly — `renderer.info.render.frame` counts actual draws.
 
 ## The capture
 
-`public/data/flexity_tram.spz`: 6,246,086 splats, 86 MB, no spherical
-harmonics, measuring **43.0 × 3.6 × 2.8 m** — length, height, width: a
-Flexity, life-sized, so the
-viewer leaves its scale alone (`worldHeight: 0`) and one data unit is one
-metre.
+`public/data/flexity_tram.spz` — SPZ v4, 6,246,086 splats, 86 MB, no spherical
+harmonics. Extent **43.0 × 3.6 × 2.8 m**, metric, so `worldHeight` is 0 and one
+data unit is one metre.
 
-It is **−y up**, the usual INRIA/COLMAP convention and the same as the bubble
-and the earlier tram.
+**Up axis.** `-y`. Two checks settle this for any capture, and they catch
+different errors:
 
-Two wrong answers preceded that one, and they failed differently — which is the
-useful part, because each compartment scan will arrive needing the same two
-checks.
+- *The extent* catches a capture lying on its side, whenever the subject has
+  known dimensions — here a wrong axis put the height across the width.
+- *Looking at it* catches a capture standing on its head, which the extent
+  cannot: an upright capture and an inverted one have identical bounds.
 
-`+z` laid the tram on its side. **The extent catches that.** A Flexity is
-42.9 m long, 2.4 m wide and 3.6 m high; under `+z` the capture measured
-43.0 × 2.8 × 3.6 with the 3.6 across its *width*. Height and width had
-swapped places.
+**Origin.** The file carries a deliberate origin and `origin: "data"` keeps it,
+so viewer coordinates are file coordinates. The capture's centre measures
+(18.97, 1.45, −0.04) m against it, which puts the origin at one end, on the
+lateral centreline, at floor level. `?axes=1` draws it.
 
-`+y` put the height back where it belonged — 43.0 × 3.6 × 2.8 — and stood the
-tram on its roof. **The extent cannot catch that at all**, because an upright
-capture and an inverted one have identical bounds. Only looking does: seats
-resting on the floor rather than hanging off the ceiling, and the blue skirt
-of the livery along the bottom rather than the top.
+**Opening pose.** `start.position` is the origin, `start.lookAt` is 40 m along
+`+x`, which is down the length of the capture. `eyeHeight` is 1.6 m and has to
+be non-zero: at the origin exactly the camera sits inside the floor, and the
+level-of-detail tree resolves that by drawing a single enormous splat — a grey
+screen reading `1 of 6,246,086`. `?eyeHeight=0` reproduces it.
 
-So: the extent settles which axis is up, whenever the thing scanned has known
-dimensions. Looking settles up from down. Run both.
-
-Standing −Y up is a 180° rotation about Z, so the tram also faces the other way
-along X. Nothing depends on that yet; `?heading=` aims it when something does.
-
-### Its origin
-
-The file carries a deliberate origin and the viewer keeps it: `origin: "data"`
-leaves the capture exactly where the file puts it, so a coordinate read off the
-viewer is a coordinate in the scan. That matters for what comes next — the
-compartment boxes get written in these numbers, and they stay meaningful back
-in the scanning software.
-
-Measured against it, the capture's centre is at **(18.97, 1.45, −0.04) m**. So
-the origin sits at one end of the vehicle, on its lateral centreline to within
-4 cm, and at floor level — 0.35 m above the lowest splat, 3.25 m below the
-highest. Deliberate, in other words, and worth keeping.
-`?axes=1` draws it: red +x, green +y, blue +z, two metres each.
-
-That makes it a fine thing to measure from and a bad thing to pivot a camera
-around: orbiting about the end of the tram swings forty metres of vehicle
-through an arc. So the two are separate settings. `origin` decides where the
-capture sits; `pivot` decides what the orbit turns around, and defaults to the
-middle of the capture. `?pivot=origin` swaps it if you ever want to see the
-file's origin directly.
-
-## Tuning
-
-Everything in `src/scene.js` can be overridden from the query string, so a
-framing or an up axis is found live and only then baked in:
-
-```
-?upAxis=-z&heading=90           stand it up differently
-?distance=1.3&elevation=5&azimuth=90   broadside, further out
-?walkSpeed=3&lookSpeed=0.004    faster walk mode
-?minPitch=-20&maxPitch=85       how far under and over the orbit may go
-?pivot=origin                   turn around the file's origin, not the middle
-?splatBudget=500000             a flat budget; 0 restores Spark's own tiering
-?lodScale=0.5                   same, as a multiplier — the one to sweep
-?lodRenderScale=3               skip splats under 3 pixels; often invisible, cheaper
-?axes=1                         draw the world origin
-?fpsLog=1                       frame timing on the console
-```
-
-`distance` is a multiple of the reach at which the whole capture just fills the
-frame — the controls fit the box's eight corners against the window's own field
-of view, so the opening shot is right on a laptop and on a phone held upright.
-A narrow window also swings the view towards end-on by itself, because
-forty-three metres laid across a portrait screen is either tiny or clipped;
-`?azimuth=` overrides that. The framing is computed once, at load: rotating the
-phone afterwards does not re-frame, but **R** does.
-
-## What it costs to draw
-
-The level-of-detail tree picks **2,500,000 splats per frame** out of the file's
-6.2M (`splatBudget` in `src/scene.js`), and holds 100–120 fps doing it.
-
-1M was tried first and looked it. The arithmetic is unkind: a forty-three metre
-tram across a laptop screen is a couple of thousand pixels for the whole
-vehicle, so the tree thins the capture hard, and the bodywork goes grainy well
-before anything else does. 2.5M is where it holds together.
-
-`splatBudget: 0` means "leave Spark's own default alone", which is tiered by
-platform — 2.5M on desktop, 1–1.5M on mobile, 500–750K in a headset. **Worth
-switching to before the link is tested on a phone**, since a flat 2.5M asks a
-handset for what a laptop gets. On a desktop the two are the same number.
-
-If it ever needs to come down, `lodScale` is the multiplier to sweep, and
-`lodRenderScale` is the cheaper lever: raising it towards 3–5 drops splats too
-small to see, which Spark's own note calls often indistinguishable.
-
-## Hosting
+## Deployment
 
 `.github/workflows/deploy-pages.yml` builds and publishes to GitHub Pages on
-every push to `main`. Nothing is deployed until that first push.
+every push to `main`.
 
-**The 86 MB file is the thing to watch.** It is under GitHub's 100 MB per-file
-hard limit, but not by much, and it is the whole demo's weight:
-
-- every visitor downloads all 86 MB before seeing anything
-- Spark then spends **9–21 seconds** building the level-of-detail tree, on a
-  laptop — this is CPU-bound and a phone will be worse
-- git keeps every version of it for ever, so a re-export doubles the repo
-
-None of that is fatal for a demo sent to one person. All of it gets better with
-a decimated capture: the LOD pyramid the scan was exported as already has
-levels at half and a quarter of the splats, and 1.5–2M splats would cut the
-download and the tree build by roughly four with very little visible loss at
-the distances this viewer is used from. Worth doing before the link goes out
-widely.
+The 86 MB capture is the constraint. It is under GitHub's 100 MB per-file
+limit, but every visitor downloads all of it before seeing anything, Spark
+then spends 8–20 seconds building the level-of-detail tree, and git keeps
+every version of the file forever. A decimated capture cuts the download and
+the tree build roughly in proportion to the splat count.
 
 ## Layout
 
 ```
-index.html         three divs: canvas, loading overlay, readout
-src/main.js        picks the capture, starts the viewer
-src/scene.js       the capture's own facts — url, up axis, framing
-src/viewer.js      renderer, Spark, up-axis correction, fitWorld, frame loop
-src/controls.js    orbit and walk modes over one camera
-src/loader.js      the two-phase loading wheel (ported from vr_GSVisualiser)
+index.html         canvas, loading overlay, readout
+src/main.js        entry point
+src/scene.js       everything specific to the capture
+src/viewer.js      renderer, Spark, up-axis correction, fit, frame loop
+src/controls.js    walk and orbit modes over one camera
+src/loader.js      two-phase loading wheel
 src/style.css
 public/data/       the .spz
 ```
-
-## Lineage
-
-The up-axis correction, `fitWorld`, the loading wheel and the scene-table
-discipline come from
-[vr_GSVisualiser](https://github.com/samanthapantseng/vr_GSVisualiser); the
-orbit-and-reset shell comes from the ThreeJS_Gaussian_Splat visualiser. The
-headset rig, the soundscape and the gaze-pitch locomotion are gone, and
-mkkellogg's renderer was passed over for Spark because 6.2M splats need a
-level-of-detail tree.
-
-## Next
-
-1. Register `VBZ_DriverPanel` and `VBZ_BackPanel` against this capture — they
-   are separate sessions with their own origins, so this is a manual alignment
-   and the biggest unknown left.
-2. Compartment hotspots: `SplatMesh.raycast()` for the hit, named boxes for the
-   region.
-3. The opening effect: fade the base capture's splats out inside the
-   compartment box while the opened scan fades in, so the closed panel is not
-   still sitting there behind it.

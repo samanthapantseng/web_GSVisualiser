@@ -13,9 +13,8 @@
 //             byte arrives, with no progress to report — so the ring sweeps
 //             instead of filling, rather than sitting at 100% looking stuck
 //
-// On 6.2M splats the prepare half is seconds on its own, so the sweep is not
-// a formality: ported unchanged from vr_GSVisualiser, where the same wheel
-// covered the same wait in the headset.
+// On 6.2M splats the prepare half is ten seconds on its own, so the sweep is
+// not a formality.
 // ---------------------------------------------------------------------------
 
 // Keep in step with r="52" in the markup below and with .loader-arc's

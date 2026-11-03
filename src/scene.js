@@ -18,7 +18,7 @@ export const TRAM = {
     url: "data/flexity_tram.spz",
 
     // Which axis of the splat data points up. This export is -y up, the usual
-    // INRIA/COLMAP convention and the same as the bubble and the earlier tram.
+    // INRIA/COLMAP convention.
     //
     // It took two wrong answers to get here, and they failed differently.
     // "+z" laid the tram on its side, which the extent catches: a Flexity is
@@ -79,12 +79,40 @@ export const TRAM = {
     // seen from beneath reads as having tipped over. 0 is the horizon.
     pitchRange: [0, 70],
 
-    // Opening frame. distance is a multiple of the reach at which the whole
-    // capture just fills the frame, so 1 touches the edges and 1.15 leaves a
-    // margin; the controls work the metres out from the window's own aspect.
-    // Elevation is degrees above the horizon; azimuth is degrees around it
-    // from broadside, so 0 looks at the side of the tram and 90 down its
-    // length. Narrow windows are swung towards end-on on their own.
+    // Where the viewer opens.
+    //
+    //   pov     standing at a point and looking in a direction, in walk mode,
+    //           so WASD moves off from there straight away
+    //   orbit   framed on the pivot from outside, using `framing` below
+    //
+    // The capture's own origin sits at floor level at one end of the vehicle,
+    // on its centreline — which is to say at the end of the corridor, looking
+    // down it. That is the opening shot: you are inside the tram before you
+    // have touched anything.
+    //
+    // position and lookAt are world metres; eyeHeight lifts both by the same
+    // amount, so the view stays level.
+    //
+    // The eye has to be lifted. At the origin exactly, the camera sits inside
+    // the floor: the splats that make up the floor are around it rather than
+    // in front of it, and Spark's level-of-detail tree resolves that by
+    // handing the GPU a single enormous splat, which fills the screen with
+    // grey. 1.6 m is a standing eye, which is both the view that was wanted
+    // and the one that renders. ?eyeHeight=0 shows the floor-level version.
+    start: {
+        mode: "pov",
+        position: [0, 0, 0],
+        lookAt: [40, 0, 0],
+        eyeHeight: 1.6,
+    },
+
+    // Used by start.mode "orbit", and by F. distance is a multiple of the
+    // reach at which the whole capture just fills the frame, so 1 touches the
+    // edges and 1.15 leaves a margin; the controls work the metres out from
+    // the window's own aspect. Elevation is degrees above the horizon;
+    // azimuth is degrees around it from broadside, so 0 looks at the side of
+    // the tram and 90 down its length. Narrow windows are swung towards
+    // end-on on their own.
     framing: { distance: 1.1, elevation: 14, azimuth: 35 },
 
     // How many splats the level-of-detail tree is allowed to hand the GPU in
@@ -95,10 +123,8 @@ export const TRAM = {
     // pixels to spare, and the tree thins the capture until the bodywork goes
     // grainy. 2.5M is where it holds together.
     //
-    // 0 means "leave Spark's own default alone", which is tiered by platform:
-    // 2.5M on desktop, 1–1.5M on mobile, 500–750K in a headset. Worth
-    // switching to when the demo is tested on a phone, since a flat 2.5M asks
-    // a phone for what a laptop gets.
+    // 0 means "leave Spark's own default alone", which is 2.5M on a desktop
+    // and the same number by a different route.
     splatBudget: 2500000,
 
     // Read out of the .spz header, which is the only count that matches what
@@ -107,7 +133,7 @@ export const TRAM = {
 
     loading: "Loading the tram…",
     hint:
-        "<strong>Drag</strong> to orbit · <strong>scroll</strong> to zoom · " +
-        "<strong>right-drag</strong> to pan · <strong>F</strong> walks " +
-        "through it · <strong>R</strong> resets · <strong>H</strong> toggles readout",
+        "<strong>Drag</strong> to look · <strong>WASD</strong> to walk · " +
+        "<strong>F</strong> orbits it from outside · <strong>R</strong> resets · " +
+        "<strong>H</strong> toggles readout",
 };

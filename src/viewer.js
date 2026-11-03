@@ -6,13 +6,6 @@ import { createControls } from "./controls.js";
 // ---------------------------------------------------------------------------
 // The viewer. One capture, handed in from src/main.js.
 //
-// Structurally this is vr_GSVisualiser's viewer with the headset taken out:
-// same up-axis correction, same fitWorld measurement, same two-phase loading
-// wheel, same "scene entry first, query string second" tunables. What is gone
-// is the XR rig — nothing overwrites camera.matrix on a flat page, so the
-// camera is moved directly — along with the soundscape and the gaze-pitch
-// locomotion the bubble needed.
-//
 // Tunables come from the scene entry first and the query string second, so a
 // framing or an up axis can be found live (?upAxis=-z&heading=90) and only
 // then baked into src/scene.js.
@@ -43,6 +36,17 @@ export function startViewer(scene) {
         // What the orbit turns around: "centre" of the capture, or the file's
         // "origin". Independent of where the capture sits.
         pivot: params.get("pivot") || scene.pivot || "centre",
+
+        // Where the viewer opens — a first-person pose or an orbit framing.
+        // See src/scene.js.
+        start: {
+            mode: params.get("start") || scene.start?.mode || "orbit",
+            position: scene.start?.position ?? [0, 0, 0],
+            lookAt: scene.start?.lookAt ?? [1, 0, 0],
+            // Lifts the eye and what it looks at by the same amount, so the
+            // view stays level. ?eyeHeight=1.6 stands the visitor up.
+            eyeHeight: num("eyeHeight", scene.start?.eyeHeight ?? 0),
+        },
 
         framing: {
             distance: num("distance", scene.framing?.distance ?? 0.85),
@@ -81,6 +85,18 @@ export function startViewer(scene) {
         // to evaluate and nothing to turn down. Kept as a knob for whenever a
         // capture does arrive with harmonics.
         maxSh: num("maxSh", scene.maxSh ?? 0),
+        // Redraw only when something has changed — see the frame loop. 1
+        // forces a redraw every frame instead, which is what to pass if the
+        // view ever goes stale.
+        always: params.get("always") === "1",
+        // Ceiling on redraws per second while something is changing. The
+        // scene is static, so a display offering 120 Hz buys nothing beyond
+        // smoother dragging and costs the difference in heat.
+        maxFps: num("maxFps", scene.maxFps ?? 60),
+        // Device pixels per CSS pixel. Cost scales with the square of this,
+        // so 2 on a Retina panel is four times the fill of 1. Dropping to 1.5
+        // is the biggest single saving after the two above.
+        pixelRatio: num("pixelRatio", scene.pixelRatio ?? 2),
         // Seconds between frame-timing lines on the console; 0 silences them.
         fpsLog: num("fpsLog", 0),
         // Draw the world origin as a set of axes. Off by default — it is a
@@ -122,9 +138,9 @@ export function startViewer(scene) {
         wheel.fail(`Could not start the viewer — ${err.message || err}`);
         return;
     }
-    // Capped at 2: a 3x phone screen triples the fill cost for a difference
-    // nobody sees on splats, and splats are fill-bound.
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Splats are fill-bound, so this is a quadratic lever: every extra device
+    // pixel per CSS pixel costs its square in fragments.
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, CONFIG.pixelRatio));
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.getElementById("app").appendChild(renderer.domElement);
 
@@ -386,7 +402,6 @@ export function startViewer(scene) {
     let lastLog = 0;
 
     function updateHud(now) {
-        frames += 1;
         if (now - lastHud < 0.5) return;
 
         const fps = frames / (now - lastHud);
@@ -397,7 +412,10 @@ export function startViewer(scene) {
         // frame, which is the number worth watching: the file's own count
         // never changes and tells you nothing about the budget.
         const drawn = spark.activeSplats ?? 0;
-        hudHeadEl.textContent = `${fps.toFixed(0)} fps`;
+        // Redraws per second, not display refresh rate. A still view redraws
+        // nothing, so this reads 0 when nobody is touching it. That is the
+        // optimisation working, not a stall.
+        hudHeadEl.textContent = fps < 1 ? "idle" : `${fps.toFixed(0)} fps`;
         hudDetailEl.textContent =
             `${drawn.toLocaleString()} of ${(scene.totalSplats ?? 0).toLocaleString()} splats\n` +
             controls.readout();
@@ -410,19 +428,83 @@ export function startViewer(scene) {
 
     // -----------------------------------------------------------------------
     // Frame loop
+    //
+    // The scene is static: a tram that does not move, lit by light baked into
+    // the splats. Redrawing it sixty times a second while nobody touches it
+    // pins the GPU at full load for an image identical to the last one, which
+    // is where a laptop's heat and fan noise come from — the renderer has no
+    // idea the picture has not changed.
+    //
+    // So redraw only on a reason to:
+    //
+    //   the camera moved     compared against the last frame actually drawn,
+    //                        which covers dragging, walking, zooming, and the
+    //                        tail of orbit damping settling
+    //   Spark has new splats the level-of-detail tree streams and refines in
+    //                        the background, and says so through onDirty
+    //   the window resized
+    //
+    // Controls still update every animation frame, because that is cheap and
+    // damping needs the steps; it is the render that is skipped. ?always=1
+    // puts the old behaviour back if something ever fails to ask for a redraw.
     // -----------------------------------------------------------------------
+
+    let needsRender = true;
+    let lastRender = -Infinity;
+    const lastPosition = new THREE.Vector3();
+    const lastOrientation = new THREE.Quaternion();
+
+    function invalidate() {
+        needsRender = true;
+    }
+
+    // Spark refines the capture in the background for a while after it loads,
+    // and streams in detail as the camera settles. Without this the first
+    // frames would be all it ever drew.
+    spark.onDirty = invalidate;
 
     window.addEventListener("resize", () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        invalidate();
     });
+
+    // Exposed for measuring from the console. An embedded preview pane can
+    // run requestAnimationFrame at a trickle while reporting itself visible,
+    // which makes a frame counter read 1 fps on a renderer that is perfectly
+    // fast — timing a render directly is the way to tell the two apart.
+    window.__gs = { renderer, camera, spark, scene: world3, invalidate };
+
+    const minInterval = CONFIG.maxFps > 0 ? 1 / CONFIG.maxFps : 0;
 
     renderer.setAnimationLoop(() => {
         timer.update();
         const dt = Math.min(timer.getDelta(), 0.1);
+        const now = timer.getElapsed();
+
         controls.update(dt);
-        updateHud(timer.getElapsed());
+
+        if (
+            !camera.position.equals(lastPosition) ||
+            !camera.quaternion.equals(lastOrientation)
+        ) {
+            invalidate();
+        }
+        // Belt and braces: onDirty is the signal, this is the state behind it.
+        if (spark.dirty) invalidate();
+
+        updateHud(now);
+
+        if (!CONFIG.always && !needsRender) return;
+        if (now - lastRender < minInterval) return;
+
+        lastPosition.copy(camera.position);
+        lastOrientation.copy(camera.quaternion);
+        needsRender = false;
+        lastRender = now;
+        frames += 1;
+
         renderer.render(world3, camera);
     });
 }

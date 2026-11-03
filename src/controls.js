@@ -6,8 +6,7 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 //
 //   orbit   the default, and the only one a visitor needs to find. Drag to
 //           turn the tram, scroll to close in, right-drag to slide the centre
-//           of rotation. One finger and two fingers do the same on a phone,
-//           which OrbitControls gives us for nothing.
+//           of rotation.
 //   walk    mouse-look and WASD, for getting inside the vehicle. Orbit can be
 //           coaxed in there by panning and zooming, but badly: the centre of
 //           rotation ends up in a wall and every drag swings the camera
@@ -27,8 +26,8 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
 
 // Horizontal field of view, which the vertical one and the window's shape
-// decide between them. On a phone held upright it is the narrower of the two,
-// and the one a long vehicle runs out of first.
+// decide between them. On a wide window it is the roomier of the two, which
+// is what lets a forty-three metre vehicle fit across the frame.
 function hFov(camera) {
     const vFov = THREE.MathUtils.degToRad(camera.fov);
     return 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
@@ -117,34 +116,67 @@ export function createControls({ camera, renderer, bounds, config }) {
     // Framing
     // -----------------------------------------------------------------------
 
-    // Where the camera sits when the page opens and when R is pressed. Derived
-    // from the capture's own extent rather than written down in metres, so it
-    // still frames the thing if the scan is ever re-exported at a different
-    // crop.
+    // How far the capture reaches, for the near and far planes and for the
+    // orbit's own travel limits. Taken off the box rather than written down,
+    // so it still holds if the scan is re-exported at a different crop.
+    function span() {
+        return bounds.box.isEmpty() ? 10 : bounds.box.getSize(desired).length();
+    }
+
+    function setClipPlanes(reach) {
+        // Near plane tight enough to stand inside the bodywork without the
+        // nearest splats being clipped away, far plane loose enough that
+        // backing right off still shows the whole vehicle.
+        camera.near = 0.05;
+        camera.far = Math.max(reach * 8, 200);
+        camera.updateProjectionMatrix();
+    }
+
+    // Where the camera sits when the page opens and when R is pressed.
     function reset() {
+        if (config.start.mode === "pov") resetPov();
+        else resetOrbit();
+    }
+
+    // Standing at a point, looking in a direction — the capture's own origin
+    // looking down the corridor, in the tram's case. Walk mode, so WASD moves
+    // off from there without pressing anything first.
+    //
+    // The orbit target is parked on the point being looked at, so F hands over
+    // to an orbit that turns around what is already in front of you rather
+    // than snapping back to wherever the target was last left.
+    function resetPov() {
+        const { position, lookAt, eyeHeight } = config.start;
+        const eye = new THREE.Vector3().fromArray(position);
+        const at = new THREE.Vector3().fromArray(lookAt);
+        eye.y += eyeHeight;
+        at.y += eyeHeight;
+
+        camera.position.copy(eye);
+        camera.lookAt(at);
+        setClipPlanes(span());
+
+        orbit.target.copy(at);
+        orbit.minDistance = 0.25;
+        orbit.maxDistance = span() * 3;
+        applyPitchRange();
+
+        syncWalkFromCamera();
+        enterWalk();
+    }
+
+    function resetOrbit() {
         // What the orbit turns around and what the opening shot is framed on.
         // The viewer sets it to the file's own origin or to the middle of the
         // capture, depending on the scene's origin mode.
         const centre = bounds.focus.clone();
 
         const { elevation, azimuth } = config.framing;
-
-        // Swing the opening view towards end-on as the window narrows. A
-        // forty-three metre vehicle laid across a portrait phone either does
-        // not fit or fits at a size nobody can read, and the angle it is seen
-        // from is the only lever that changes how much length has to fit at
-        // all: seen down its length the tram runs away from the camera
-        // instead of across the frame. Landscape is left alone.
-        //
-        // Azimuth here is three.js's spherical theta, measured from +Z — so 0
-        // is broadside to a vehicle lying along X and 90 is end-on, which is
-        // the opposite of what the name suggests. 78 rather than a full 90:
-        // dead end-on is a circle, and shows nothing of the shape.
-        const narrow = THREE.MathUtils.clamp((1.3 - camera.aspect) / 0.9, 0, 1);
-        const aimed = THREE.MathUtils.lerp(azimuth, 78, narrow);
-
+        // Azimuth is three.js's spherical theta, measured from +Z — so 0 is
+        // broadside to a vehicle lying along X and 90 is end-on, which is the
+        // opposite of what the name suggests.
         const phi = THREE.MathUtils.degToRad(90 - elevation);
-        const theta = THREE.MathUtils.degToRad(aimed);
+        const theta = THREE.MathUtils.degToRad(azimuth);
         // Unit vector from the centre of the capture towards the camera.
         const dir = new THREE.Vector3().setFromSphericalCoords(1, phi, theta);
 
@@ -181,18 +213,14 @@ export function createControls({ camera, renderer, bounds, config }) {
         camera.position.copy(centre).addScaledVector(dir, reach);
         camera.lookAt(centre);
 
-        // Near plane tight enough to stand inside the bodywork without the
-        // nearest splats being clipped away, far plane loose enough that
-        // backing right off still shows the whole vehicle.
-        camera.near = 0.05;
-        camera.far = Math.max(fits * 8, 200);
-        camera.updateProjectionMatrix();
+        setClipPlanes(fits);
 
         orbit.minDistance = 0.25;
         orbit.maxDistance = fits * 3;
         orbit.update();
 
         syncWalkFromCamera();
+        if (mode === "walk") enterOrbit();
     }
 
     // -----------------------------------------------------------------------
@@ -208,30 +236,42 @@ export function createControls({ camera, renderer, bounds, config }) {
         pitch = Math.asin(THREE.MathUtils.clamp(forward.y, -1, 1));
     }
 
-    function setMode(next) {
-        if (next === mode) return;
-        mode = next;
+    // Taking the camera, and handing it back. Split from setMode because the
+    // opening pose needs to enter walk mode without asking for pointer lock:
+    // there has been no user gesture at that point, and a refused lock is an
+    // uncaught promise rejection for nothing.
+    function enterWalk({ lock = false } = {}) {
+        mode = "walk";
+        orbit.enabled = false;
+        if (lock) lockPointer();
+    }
 
-        if (mode === "walk") {
-            syncWalkFromCamera();
-            orbit.enabled = false;
-            // Pointer lock needs a user gesture, and the F keypress is one.
-            lockPointer();
-        } else {
-            document.exitPointerLock?.();
-            orbit.enabled = true;
+    function enterOrbit({ aimAhead = false } = {}) {
+        mode = "orbit";
+        document.exitPointerLock?.();
+        orbit.enabled = true;
+        if (aimAhead) {
             // Put the centre of rotation somewhere plausible ahead of wherever
             // walking ended up, or the first drag swings the camera back to
             // wherever the target was left.
             camera.getWorldDirection(forward);
-            const reach = bounds.box.isEmpty()
-                ? 5
-                : Math.min(8, bounds.box.getSize(desired).length() * 0.2);
+            const reach = Math.min(8, span() * 0.2);
             orbit.target.copy(camera.position).addScaledVector(forward, reach);
             orbit.update();
-            keys.clear();
-            dragLooking = false;
-            velocity.set(0, 0, 0);
+        }
+        keys.clear();
+        dragLooking = false;
+        velocity.set(0, 0, 0);
+    }
+
+    // What F does.
+    function setMode(next) {
+        if (next === mode) return;
+        if (next === "walk") {
+            syncWalkFromCamera();
+            enterWalk({ lock: true });
+        } else {
+            enterOrbit({ aimAhead: true });
         }
     }
 
@@ -246,7 +286,7 @@ export function createControls({ camera, renderer, bounds, config }) {
             return;
         }
         if (key === "r") {
-            setMode("orbit");
+            // Back to the opening pose, whichever mode that is.
             reset();
             return;
         }
