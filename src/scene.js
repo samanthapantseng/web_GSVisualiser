@@ -164,6 +164,49 @@ export const TRAM = {
     totalSplats: 6246086,
 
     loading: "Loading the tram…",
+    // Solid walls in walk mode. The viewer builds a coarse occupancy grid
+    // from the splat centres once the capture has loaded — a cell holding
+    // enough small splats counts as solid — and walking is tested against it.
+    // Without this you drift through the bodywork and out into the void,
+    // which is no use to anyone being shown round a vehicle.
+    //
+    // It is built from the capture, so it needs no authoring, and it knows
+    // about the seats and the partitions as well as the outer shell. The
+    // trade is that it is only as good as the scan: a gap the scan did not
+    // resolve is a gap you can walk through. ?collide=0 turns it off.
+    collision: true,
+    // Grid resolution in metres. Finer catches thinner things and costs
+    // memory as the cube of itself.
+    collisionCell: 0.2,
+    // Small splats per cell before it counts as solid. Too low and stray
+    // splats in the aisle wall it off; too high and thin panels let you
+    // through.
+    collisionThreshold: 4,
+    // Boxes where the collision grid is ignored, in world metres.
+    //
+    // The grid is built from what the scan saw, and what the scan saw of the
+    // cab doorway is a 35 cm slot offset 40 cm from the centreline — passable
+    // in principle, impossible to find by walking at it. A door people are
+    // meant to go through is worth stating outright rather than hoping the
+    // capture resolved it.
+    //
+    // The numbers come from probing the grid: at eye height the bulkhead runs
+    // solid across z = 0.00..0.35 from x = 37.7, with the gap beyond it. This
+    // box covers the threshold and the frame either side, so walking straight
+    // down the aisle carries you in.
+    openings: [
+        {
+            name: "Driver's cab door",
+            min: [37.5, 0.0, -0.15],
+            max: [39.2, 2.1, 0.75],
+        },
+    ],
+
+    // How far inside the capture's own bounds walking is held. The grid alone
+    // is not enough: glass leaves no splats, so the windows are holes in it
+    // and you can walk out through one. This closes them.
+    wallMargin: 0.25,
+
     // Double-tap W (or the up arrow) and hold to run. 1.4 m/s is a walking
     // pace, which is right for looking at something and wrong for crossing
     // forty-three metres of it; 3x covers the length in about ten seconds.

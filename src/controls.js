@@ -105,6 +105,7 @@ export function createControls({ camera, renderer, bounds, config }) {
     const right = new THREE.Vector3();
     const up = new THREE.Vector3(0, 1, 0);
     const limit = new THREE.Box3();
+    const step = new THREE.Vector3();
 
     function applyPitchRange() {
         const [minPitch, maxPitch] = config.pitchRange;
@@ -397,6 +398,39 @@ export function createControls({ camera, renderer, bounds, config }) {
         return names.some((name) => keys.has(name));
     }
 
+    // Walls. `bounds.solidAt` is the occupancy grid the viewer builds from
+    // the capture; without it every point is air and walking is as free as it
+    // was before.
+    function solid(x, y, z) {
+        return bounds.solidAt ? bounds.solidAt(x, y, z) : false;
+    }
+
+    // Move, but not through anything. One axis at a time, so walking into a
+    // wall at an angle slides along it instead of stopping dead — which is
+    // the difference between a corridor you can follow and one you get stuck
+    // in. A blocked axis also drops its velocity, or pushing into a wall
+    // builds up speed that fires you off sideways the moment you turn.
+    function moveCollided(delta) {
+        const p = camera.position;
+
+        // Already inside something — spawned in a seat, or nudged through a
+        // partition by a resize. Blocking here would trap you for good, so
+        // movement is unrestricted until you are back in open air.
+        if (solid(p.x, p.y, p.z)) {
+            p.add(delta);
+            return;
+        }
+
+        if (!solid(p.x + delta.x, p.y, p.z)) p.x += delta.x;
+        else velocity.x = 0;
+
+        if (!solid(p.x, p.y + delta.y, p.z)) p.y += delta.y;
+        else velocity.y = 0;
+
+        if (!solid(p.x, p.y, p.z + delta.z)) p.z += delta.z;
+        else velocity.z = 0;
+    }
+
     function updateWalk(dt) {
         camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, "YXZ"));
 
@@ -422,12 +456,28 @@ export function createControls({ camera, renderer, bounds, config }) {
         // Ramp towards the stick rather than snapping to it: a hard start and
         // stop on a mouse-look camera is unpleasant to watch, let alone to use.
         velocity.lerp(desired, Math.min(1, config.accel * dt));
-        camera.position.addScaledVector(velocity, dt);
+        step.copy(velocity).multiplyScalar(dt);
+        moveCollided(step);
 
-        // Hold the camera within reach of the capture. Outside it there is
-        // nothing to see and no landmark to get back by.
+        // The outer hull, which the occupancy grid cannot be trusted to
+        // provide. Glass leaves no splats — the windows in this capture are
+        // black rectangles with nothing behind them — so to the grid a window
+        // is a doorway, and walking sideways takes you straight out through
+        // one. Clamping to the capture's own bounds, pulled in by a margin,
+        // closes every such hole at once and costs two comparisons.
+        //
+        // With collision off the same box is pushed outwards instead, so
+        // ?collide=0 still lets you roam around the outside.
         if (!bounds.box.isEmpty()) {
-            limit.copy(bounds.box).expandByScalar(config.roam);
+            limit.copy(bounds.box);
+            if (config.collision) {
+                limit.expandByScalar(-config.wallMargin);
+                // A margin wider than the vehicle would invert the box and
+                // clamp the camera to a corner of it.
+                if (limit.isEmpty()) limit.copy(bounds.box);
+            } else {
+                limit.expandByScalar(config.roam);
+            }
             camera.position.clamp(limit.min, limit.max);
         }
     }

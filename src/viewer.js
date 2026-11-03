@@ -84,6 +84,22 @@ export function startViewer(scene) {
         // How far outside the capture's own bounds walk mode may stray.
         roam: num("roam", scene.roam ?? 8),
 
+        // Solid walls. See buildOccupancy below and src/scene.js.
+        collision: params.get("collide") !== "0" && scene.collision !== false,
+        collisionCell: num("collisionCell", scene.collisionCell ?? 0.2),
+        collisionThreshold: num("collisionThreshold", scene.collisionThreshold ?? 4),
+        // Splats larger than this are not evidence of a surface: the
+        // level-of-detail tree carries merged parents metres across, and one
+        // of those in a cell would wall off the aisle.
+        collisionMaxSplat: num("collisionMaxSplat", scene.collisionMaxSplat ?? 0.15),
+        collisionSamples: num("collisionSamples", scene.collisionSamples ?? 400000),
+        // Boxes where the grid is ignored, so a doorway the scan filled in
+        // can be walked through. See src/scene.js.
+        openings: scene.openings ?? [],
+        // How far inside the capture's own bounds walk mode is held when
+        // collision is on. The backstop for everything the grid cannot see.
+        wallMargin: num("wallMargin", scene.wallMargin ?? 0.25),
+
         // Render budget: how many splats the LoD tree may hand the GPU per
         // frame. 0 leaves Spark's own per-platform default in place; anything
         // else is a flat count across every device. See src/scene.js.
@@ -260,6 +276,8 @@ export function startViewer(scene) {
     // the scene's pivot. Not the same question as where the capture sits:
     // this scan's origin is at one end of the vehicle, so keeping the file's
     // coordinates and pivoting on the middle is the combination that wants.
+    // `solidAt(x, y, z)` is filled in by fitWorld when collision is on, and
+    // stays undefined when it is off — walk mode treats that as "all air".
     const bounds = { box: new THREE.Box3(), focus: new THREE.Vector3() };
 
     const controls = createControls({
@@ -417,6 +435,8 @@ export function startViewer(scene) {
         // origin: "data" that is (0, 0, 0) by construction, but reading it off
         // the transform keeps the two modes answering the same question.
         const dataOrigin = new THREE.Vector3().applyMatrix4(world.matrixWorld);
+        if (CONFIG.collision) bounds.solidAt = buildOccupancy();
+
         bounds.focus.copy(
             CONFIG.pivot === "origin"
                 ? dataOrigin
@@ -440,6 +460,107 @@ export function startViewer(scene) {
                         : `Spark's platform default x ${CONFIG.lodScale}`
                 }`,
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // Where the solid parts of the vehicle are
+    //
+    // Splats describe surfaces, so a coarse occupancy grid built from their
+    // centres is a serviceable set of walls: a cell holding enough small
+    // splats is solid, everything else is air. The aisle, being air, stays
+    // walkable; the bodywork, the partitions and the seats do not.
+    //
+    // Only small splats count. The level-of-detail tree carries merged parent
+    // splats metres across — the first one in this capture is 12.8 m long —
+    // and a single one of those would wall off the whole saloon.
+    //
+    // Built once, after the capture has been measured. Reading it is three
+    // divides and an array lookup, so walking costs nothing per frame.
+    // -----------------------------------------------------------------------
+
+    function buildOccupancy() {
+        const resolved = resolvePackedSplats(splats);
+        if (!resolved || bounds.box.isEmpty()) return null;
+
+        const { packed, count } = resolved;
+        const cell = CONFIG.collisionCell;
+        const min = bounds.box.min.clone().subScalar(cell);
+        const size = bounds.box.getSize(new THREE.Vector3()).addScalar(cell * 2);
+        const nx = Math.ceil(size.x / cell);
+        const ny = Math.ceil(size.y / cell);
+        const nz = Math.ceil(size.z / cell);
+        if (nx * ny * nz > 8e6) {
+            console.warn("Collision grid would be too large; walls are off.");
+            return null;
+        }
+
+        const counts = new Uint16Array(nx * ny * nz);
+        const matrix = world.matrixWorld;
+        const centre = new THREE.Vector3();
+        const stride = Math.max(1, Math.floor(count / CONFIG.collisionSamples));
+        const started = performance.now();
+
+        for (let i = 0; i < count; i += stride) {
+            const splat = packed.getSplat(i);
+            const scales = splat.scales;
+            const biggest = Math.max(scales.x, scales.y, scales.z);
+            if (!(biggest < CONFIG.collisionMaxSplat)) continue;
+
+            centre.copy(splat.center).applyMatrix4(matrix);
+            if (!Number.isFinite(centre.x)) continue;
+
+            const ix = Math.floor((centre.x - min.x) / cell);
+            const iy = Math.floor((centre.y - min.y) / cell);
+            const iz = Math.floor((centre.z - min.z) / cell);
+            if (ix < 0 || iy < 0 || iz < 0 || ix >= nx || iy >= ny || iz >= nz) {
+                continue;
+            }
+            const k = (iz * ny + iy) * nx + ix;
+            if (counts[k] < 65535) counts[k] += 1;
+        }
+
+        // Doorways. The grid is built from what the scan saw, and what it
+        // saw of the cab doorway is a 35 cm slot offset 40 cm off the
+        // centreline — passable in principle and impossible to find by
+        // walking into it. An opening is a box where the grid is ignored.
+        const openings = CONFIG.openings.map(
+            (o) =>
+                new THREE.Box3(
+                    new THREE.Vector3(...o.min),
+                    new THREE.Vector3(...o.max),
+                ),
+        );
+        const probe = new THREE.Vector3();
+
+        const threshold = CONFIG.collisionThreshold;
+        let solid = 0;
+        for (let k = 0; k < counts.length; k += 1) {
+            if (counts[k] >= threshold) solid += 1;
+        }
+
+        console.log(
+            `Collision grid: ${nx} x ${ny} x ${nz} cells of ${cell} m, ` +
+                `${solid.toLocaleString()} solid of ${counts.length.toLocaleString()} ` +
+                `(${((100 * solid) / counts.length).toFixed(1)}%), ` +
+                `built in ${Math.round(performance.now() - started)} ms` +
+                (openings.length ? `, ${openings.length} opening(s)` : ""),
+        );
+
+        return function solidAt(x, y, z) {
+            if (openings.length) {
+                probe.set(x, y, z);
+                for (const box of openings) {
+                    if (box.containsPoint(probe)) return false;
+                }
+            }
+            const ix = Math.floor((x - min.x) / cell);
+            if (ix < 0 || ix >= nx) return false;
+            const iy = Math.floor((y - min.y) / cell);
+            if (iy < 0 || iy >= ny) return false;
+            const iz = Math.floor((z - min.z) / cell);
+            if (iz < 0 || iz >= nz) return false;
+            return counts[(iz * ny + iy) * nx + ix] >= threshold;
+        };
     }
 
     // -----------------------------------------------------------------------
@@ -603,6 +724,7 @@ export function startViewer(scene) {
         splats,
         world,
         controls,
+        bounds,
         invalidate,
         get state() {
             return { refined, lastChange, changes, elapsed: timer.getElapsed() };

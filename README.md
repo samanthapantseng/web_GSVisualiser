@@ -35,7 +35,8 @@ Keystrokes carrying cmd, ctrl or alt are ignored, so system and browser
 shortcuts do not drive the camera. Shift is deliberately unbound for the same
 reason.
 
-Double-tapping forward runs at three times walking pace — 1.4 m/s is right for
+Walk mode has solid walls — see **Collision** below. Double-tapping forward
+runs at three times walking pace — 1.4 m/s is right for
 looking at something and slow for crossing forty-three metres of it. The run
 lasts only while forward is held, so it cannot be left switched on, and the
 readout says `running` while it is active.
@@ -57,6 +58,11 @@ and then written into the file.
 | `pitchRange` | `?minPitch=` `?maxPitch=` | degrees above the horizon the orbit may reach |
 | `start.mode` | `?start=` | `pov` opens inside, `orbit` opens outside |
 | `start.eyeHeight` | `?eyeHeight=` | lifts the opening eye above `start.position` |
+| `collision` | `?collide=0` | solid walls in walk mode; on by default |
+| `collisionCell` | `?collisionCell=` | occupancy grid resolution, metres |
+| `collisionThreshold` | `?collisionThreshold=` | small splats per cell before it counts as solid |
+| `wallMargin` | `?wallMargin=` | how far inside the capture's bounds walking is held |
+| `openings` | — | boxes where the collision grid is ignored |
 | `sprintMultiplier` | `?sprint=` | how much faster a double-tapped forward runs |
 | `doubleTapMs` | `?doubleTapMs=` | how close the two taps must be |
 | `start.position` | `?from=x,y,z` | where the opening eye stands (before `eyeHeight`) |
@@ -128,6 +134,57 @@ Read the frame rate in a real browser tab. `window.__gs` exposes the renderer,
 camera, scene, SparkRenderer and the `invalidate()` hook for measuring
 directly — `renderer.info.render.frame` counts actual draws, and
 `window.__gs.state` reports whether the view is currently refined.
+
+## Collision
+
+Walking is blocked by the vehicle, rather than passing through it. Two
+mechanisms, because neither is sufficient alone:
+
+**An occupancy grid**, built from the capture once it has loaded. The world is
+divided into 0.2 m cells and a cell holding at least `collisionThreshold`
+small splats counts as solid; everything else is air. Since splats describe
+surfaces, the aisle stays walkable while the bodywork, partitions, seats,
+floor and ceiling do not. It needs no authoring and it knows about the
+interior, not just the shell. Built in ~50 ms: 217 × 20 × 16 cells, 19% solid.
+
+Only *small* splats count. The level-of-detail tree carries merged parent
+splats metres across — the first in this capture is 12.8 m long — and one of
+those in a cell would wall off the whole saloon.
+
+**An outer hull**, the capture's own bounds pulled in by `wallMargin`. The grid
+cannot be trusted on its own because **glass leaves no splats**: the windows
+here are black rectangles with nothing behind them, so to the grid a window is
+a doorway. Before the hull was added, strafing sideways from the aisle put the
+camera at z = 4.18 m — outside a vehicle 2.8 m wide.
+
+Movement resolves one axis at a time, so walking into a wall at an angle slides
+along it rather than stopping dead, and a blocked axis loses its velocity so
+pushing into a wall does not store up speed. A camera that somehow ends up
+inside solid geometry is not blocked at all, so it can never be trapped.
+
+**Openings** are boxes where the grid is ignored, for doors people are meant
+to go through. The grid knows only what the scan saw, and what it saw of the
+cab doorway was a 35 cm slot offset 40 cm from the centreline — passable in
+principle, impossible to find by walking at it. `openings` in `src/scene.js`
+states the doorway outright; the numbers came from probing the grid with
+`window.__gs.bounds.solidAt(x, y, z)`.
+
+The limits are otherwise only as good as the scan: a gap it did not resolve is
+a gap you can walk through, and a closed door it did resolve is a wall.
+`?collide=0` turns the whole thing off and restores free roaming.
+
+### Checking collision
+
+Probe the grid directly rather than trying to walk into things:
+
+```js
+window.__gs.bounds.solidAt(x, y, z)   // true where walking is blocked
+```
+
+Walk-based tests are unreliable in an embedded preview pane. Simulated time
+advances only when `requestAnimationFrame` fires, and a throttled pane delivers
+frames in bursts with a tiny delta — holding forward for three seconds can
+advance the camera 0.1 m and look exactly like a wall.
 
 ## The capture
 
