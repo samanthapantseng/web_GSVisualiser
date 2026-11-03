@@ -127,6 +127,24 @@ export const TRAM = {
     // and the same number by a different route.
     splatBudget: 2500000,
 
+    // The budget to climb to once the view stops moving, and how long it has
+    // to be still first.
+    //
+    // Redrawing only on change leaves the whole frame budget unspent while
+    // nobody is touching anything, and this spends it: the level-of-detail
+    // tree is given far more than it can use, descends as deep as the capture
+    // allows, and draws one expensive frame that then costs nothing to keep on
+    // screen. Moving drops straight back to splatBudget.
+    //
+    // 8M is above the 7.74M the tree holds, so it is not really a budget —
+    // it means "take whatever is worth taking". What the tree actually takes
+    // is bounded by lodRenderScale, which stops it at splats under a pixel,
+    // so the gain is large up close and small from across the street.
+    //
+    // 0 turns the whole thing off.
+    idleSplatBudget: 8000000,
+    idleDelay: 0.35,
+
     // Read out of the .spz header, which is the only count that matches what
     // actually loads. Only for the HUD's "x of y" line.
     totalSplats: 6246086,

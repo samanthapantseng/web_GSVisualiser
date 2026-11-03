@@ -74,6 +74,10 @@ export function startViewer(scene) {
         // frame. 0 leaves Spark's own per-platform default in place; anything
         // else is a flat count across every device. See src/scene.js.
         splatBudget: num("splatBudget", scene.splatBudget ?? 0),
+        // What the budget climbs to once the view stops moving, and the
+        // stillness required first. See src/scene.js. 0 disables it.
+        idleSplatBudget: num("idleSplatBudget", scene.idleSplatBudget ?? 0),
+        idleDelay: num("idleDelay", scene.idleDelay ?? 0.35),
         // Multiplies that count. Left as a separate knob because it is the
         // one to sweep when hunting for the budget, with ?lodScale=0.5.
         lodScale: num("lodScale", scene.lodScale ?? 1),
@@ -454,8 +458,74 @@ export function startViewer(scene) {
     const lastPosition = new THREE.Vector3();
     const lastOrientation = new THREE.Quaternion();
 
+    // How far the camera has to move from the last frame actually drawn before
+    // the picture is worth drawing again. Not an optimisation — a correctness
+    // fix. OrbitControls' damping decays asymptotically and never reaches
+    // zero, so the camera goes on twitching in its last floating-point bits
+    // long after the view has visibly stopped. Compared exactly, an orbited
+    // scene is never still: it redraws for ever and never refines.
+    //
+    // The thresholds are OrbitControls' own, which runs this exact test
+    // internally against _EPS = 1e-6 on squared displacement to decide whether
+    // to emit a change event. Matching it means the view settles no later than
+    // the library thinks it has: a millimetre of travel, and under a pixel of
+    // rotation at this field of view.
+    //
+    // Both are measured against the last frame actually drawn rather than the
+    // last animation frame, so a drift too slow to trip the test on any single
+    // frame still accumulates into a redraw.
+    const STILL_DISTANCE = 1e-3;
+    const STILL_ANGLE = 7e-4;
+
+    function cameraMoved() {
+        return (
+            camera.position.distanceToSquared(lastPosition) >
+                STILL_DISTANCE * STILL_DISTANCE ||
+            camera.quaternion.angleTo(lastOrientation) > STILL_ANGLE
+        );
+    }
+
     function invalidate() {
         needsRender = true;
+    }
+
+    // -----------------------------------------------------------------------
+    // Refining while still
+    //
+    // Redrawing on change leaves the frame budget unspent whenever nobody is
+    // touching anything. This spends it: after a moment of stillness the
+    // level-of-detail tree is handed a far larger budget, descends deeper into
+    // the capture, and draws one expensive frame — which then costs nothing at
+    // all to keep on screen, because the next frame is not drawn.
+    //
+    // Only movement drops it back. Spark's own dirty flag must not, or raising
+    // the budget would immediately undo itself: the refinement is exactly what
+    // makes Spark dirty.
+    // -----------------------------------------------------------------------
+
+    const canRefine =
+        CONFIG.splatBudget > 0 && CONFIG.idleSplatBudget > CONFIG.splatBudget;
+    let refined = false;
+    let lastChange = 0;
+    let changes = 0;
+
+    function setBudget(count) {
+        spark.lodSplatCount = count;
+        // The tree re-selects on its next update; without this the change
+        // would not be noticed until something else asked for a frame.
+        invalidate();
+    }
+
+    // Something the viewer did: the camera moved, the window changed shape.
+    // Distinct from invalidate(), which only means "the picture is stale".
+    function markChanged(now) {
+        lastChange = now;
+        changes += 1;
+        if (refined) {
+            refined = false;
+            setBudget(CONFIG.splatBudget);
+        }
+        invalidate();
     }
 
     // Spark refines the capture in the background for a while after it loads,
@@ -467,14 +537,23 @@ export function startViewer(scene) {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
-        invalidate();
+        markChanged(timer.getElapsed());
     });
 
     // Exposed for measuring from the console. An embedded preview pane can
     // run requestAnimationFrame at a trickle while reporting itself visible,
     // which makes a frame counter read 1 fps on a renderer that is perfectly
     // fast — timing a render directly is the way to tell the two apart.
-    window.__gs = { renderer, camera, spark, scene: world3, invalidate };
+    window.__gs = {
+        renderer,
+        camera,
+        spark,
+        scene: world3,
+        invalidate,
+        get state() {
+            return { refined, lastChange, changes, elapsed: timer.getElapsed() };
+        },
+    };
 
     const minInterval = CONFIG.maxFps > 0 ? 1 / CONFIG.maxFps : 0;
 
@@ -485,14 +564,17 @@ export function startViewer(scene) {
 
         controls.update(dt);
 
-        if (
-            !camera.position.equals(lastPosition) ||
-            !camera.quaternion.equals(lastOrientation)
-        ) {
-            invalidate();
-        }
+        if (cameraMoved()) markChanged(now);
         // Belt and braces: onDirty is the signal, this is the state behind it.
+        // Deliberately invalidate() and not markChanged(): Spark goes dirty as
+        // a *result* of refining, and treating that as movement would drop the
+        // budget again on the next frame, for ever.
         if (spark.dirty) invalidate();
+
+        if (canRefine && !refined && now - lastChange >= CONFIG.idleDelay) {
+            refined = true;
+            setBudget(CONFIG.idleSplatBudget);
+        }
 
         updateHud(now);
 

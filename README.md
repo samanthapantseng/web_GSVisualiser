@@ -48,7 +48,9 @@ and then written into the file.
 | `start.mode` | `?start=` | `pov` opens inside, `orbit` opens outside |
 | `start.eyeHeight` | `?eyeHeight=` | lifts the opening eye above `start.position` |
 | `framing` | `?distance=` `?elevation=` `?azimuth=` | the orbit opening shot |
-| `splatBudget` | `?splatBudget=` | splats per frame; 0 uses Spark's own default |
+| `splatBudget` | `?splatBudget=` | splats per frame while moving; 0 uses Spark's own default |
+| `idleSplatBudget` | `?idleSplatBudget=` | splats per frame once still; 0 disables refinement |
+| `idleDelay` | `?idleDelay=` | seconds of stillness before refining |
 | `lodScale` | `?lodScale=` | multiplier on that budget |
 | `lodRenderScale` | `?lodRenderScale=` | minimum on-screen splat size, in pixels |
 | `maxFps` | `?maxFps=` | ceiling on redraws per second |
@@ -65,13 +67,38 @@ window resized. A still view costs nothing: zero draw calls, idle GPU. This is
 the difference between a warm laptop and a hot one, and the readout shows
 `idle` rather than a frame rate when it applies.
 
+Because a still frame is drawn once and then costs nothing to keep on
+screen, the viewer **spends the saving on detail**: after `idleDelay` seconds
+without movement the level-of-detail budget climbs from `splatBudget` to
+`idleSplatBudget`, the tree descends deeper into the capture, and one
+expensive frame is drawn. Any movement drops it straight back.
+
+Measured: **2,500,000 splats while moving**, rising once still to
+**5,241,512 inside the vehicle** or **2,903,351 from outside it** — nine
+rendered frames to get there, so the transition reads as a flicker of
+sharpening rather than a stall.
+
+The idle budget is set above the 7.74M the tree holds, so it is not really a
+budget; what the tree actually takes is bounded by `lodRenderScale`, which
+stops it descending into splats smaller than a pixel. That is why the two
+figures above differ: close up there is a great deal more worth drawing, and
+from across the street the capture is already finer than the screen.
+
+**Stillness is measured with a tolerance, and has to be.** `OrbitControls`
+damping decays asymptotically and never reaches zero, so a compared-exactly
+camera goes on twitching in its last floating-point bits for ever — the view
+never counts as still, never refines, and never stops redrawing. The
+thresholds in `src/viewer.js` are the library's own (`_EPS`, a millimetre of
+travel and under a pixel of rotation), measured against the last frame drawn
+rather than the last animation frame.
+
 Levers, in the order worth reaching for:
 
 | | |
 |---|---|
 | `maxFps` | 60 by default. A static scene gains nothing from 120 beyond smoother dragging. |
 | `pixelRatio` | 2 by default. Cost scales with its square, so 1.5 is a large saving and 1 a larger one. |
-| `splatBudget` | 2,500,000 by default. Below about 1M the bodywork visibly thins. |
+| `splatBudget` | 2,500,000 by default, while moving. Below about 1M the bodywork visibly thins. |
 | `lodRenderScale` | 1 by default. Towards 3–5 it skips splats too small to see. |
 
 Measured: about 70 redraws per second while moving through the interior,
@@ -83,7 +110,8 @@ report 1 fps on a renderer spending 0.1 ms per frame, because the pane runs
 `requestAnimationFrame` at a trickle while `document.hidden` stays `false`.
 Read the frame rate in a real browser tab. `window.__gs` exposes the renderer,
 camera, scene, SparkRenderer and the `invalidate()` hook for measuring
-directly — `renderer.info.render.frame` counts actual draws.
+directly — `renderer.info.render.frame` counts actual draws, and
+`window.__gs.state` reports whether the view is currently refined.
 
 ## The capture
 
