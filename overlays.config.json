@@ -1,0 +1,47 @@
+{
+    "$comment": [
+        "Where each detail capture sits in the vehicle, and how the cutout mask",
+        "that hides the base splats underneath it is built.",
+        "",
+        "This file is the single source of truth for overlay placement. The",
+        "runtime (src/overlay/OverlayManager.js) and the offline mask builder",
+        "(tools/build-overlay-masks.js) both read it, which is the point: a mask",
+        "baked from one transform and drawn against another misaligns silently,",
+        "and the symptom — base splats bleeding through one edge of an overlay —",
+        "looks like a dilation problem rather than a stale mask.",
+        "",
+        "src/scene.js holds the hotspot that opens each overlay and refers to it",
+        "by id. The prose about why a given capture is placed the way it is lives",
+        "there; the numbers live here.",
+        "",
+        "Rotation is euler degrees in YXZ order, which is what the in-app align",
+        "mode (?align=<id>) prints. A 'quaternion' array [x,y,z,w] is accepted",
+        "instead for anything exported from other tooling.",
+        "",
+        "Rebuild the mask after changing anything here: npm run build:masks"
+    ],
+
+    "grid": {
+        "cellSize": 0.08,
+        "dilation": 2,
+
+        "minOpacity": 0.05,
+
+        "minCellSplats": 25
+    },
+
+    "overlays": [
+        {
+            "id": "driver-ceiling-panel",
+            "url": "data/flexity_DriverPanel.spz",
+            "source": "public/data/flexity_DriverPanel.spz",
+
+            "upAxis": "-y",
+            "position": [39.431, 1.604, -0.093],
+            "rotation": [0, -74.3, 0.4],
+            "scale": 1,
+
+            "bakeCut": false
+        }
+    ]
+}

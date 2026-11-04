@@ -27,6 +27,13 @@ Opens standing inside the capture, in walk mode.
 | `F` | switch between walk and orbit; in orbit, drag to turn, scroll to zoom, right-drag to pan |
 | `R` | back to the opening pose |
 | `H` | show or hide the readout |
+| click a circle | open the detail capture behind it |
+| `Esc` | close it again |
+| `1`–`9` | toggle an overlay directly (by position in `overlays.config.json`) |
+| `0` | toggle every overlay |
+| `M` | base cutout on/off — debug |
+| `G` | show the occupied mask cells — debug, desktop only |
+| `[` `]` | shorter / longer fades |
 
 Looking around requires holding the primary mouse button. There is no pointer
 lock, deliberately: it would let the view follow the mouse for as long as the
@@ -241,6 +248,103 @@ be non-zero: at the origin exactly the camera sits inside the floor, and the
 level-of-detail tree resolves that by drawing a single enormous splat — a grey
 screen reading `1 of 6,246,086`. `?eyeHeight=0` reproduces it.
 
+## Overlays and the base cutout
+
+A circle on the capture means there is more here than the scan in front of you
+shows. Clicking one lays a second capture over the spot it belongs to — the cab
+ceiling hatch, scanned again with the panel open — and hides the base splats
+underneath it so the two do not blend into a double image.
+
+The hiding is automatic. Nothing is measured by hand and no boxes are placed:
+`npm run build:masks` reads each overlay capture, puts every splat centre
+through that overlay's world transform, and marks the cells of a shared
+occupancy grid. At runtime a Spark `worldModifier` on the base capture reads
+that grid once per splat and multiplies the splat's alpha down by however
+visible the overlays occupying its cell are. Fading an overlay in therefore
+fades the base out underneath it, in the same frame and from the same number,
+which is what keeps a crossfade from flashing a hole or a double image.
+
+### Rebuilding the mask
+
+```bash
+npm run build:masks
+```
+
+Run it whenever anything in `overlays.config.json` changes — a placement, a
+capture, a grid setting. The mask is baked against the transforms in that file,
+and a mask baked for one placement and drawn against another misaligns
+silently: the symptom is base splats bleeding through one edge of the overlay,
+which looks like a dilation problem rather than the stale file it is. The
+loader refuses a mask whose overlay list no longer matches the config, but it
+cannot detect a moved overlay — so rebuild.
+
+### Tuning
+
+| in `overlays.config.json` | what it does |
+|---|---|
+| `cellSize` (0.08 m) | grid resolution. Finer gives a cleaner cut edge and costs memory as the cube of itself. |
+| `dilation` (2 cells) | how far the cut grows outward. Raise it if coarse distant LoD splats bleed past the edge — those are merged parents metres across, standing in for a whole region, and their centres sit outside the capture. |
+| `minOpacity` (0.05) | splats fainter than this do not cut. The haze a close-range capture leaves around itself. |
+| `minCellSplats` (25) | splats a cell needs before it counts. **The knob that decides whether the cut is the thing you scanned or the room around it.** |
+
+`minCellSplats` is worth understanding before you change it. A detail capture
+is never only its subject: this one carries the hatch, the panel hanging open
+below it, and a halo of thin, sparse, badly reconstructed surroundings. With no
+threshold the cut is a block 2.8 x 2.6 x 3.0 m reaching from the roof down past
+the driver's seat. Asking for a couple of dozen splats per cell drops the haze
+and keeps the panel, because a real surface puts dozens of splats through an
+8 cm cell and haze puts one or two. The builder prints the world-space box each
+overlay ends up cutting — read it, and if it reaches somewhere it should not,
+that is the number to raise.
+
+`?softCut=1` feathers the cut edge by averaging over a cell and its six
+neighbours. Seven texture fetches per splat instead of one, so it is off by
+default; the difference only shows at a cell boundary.
+
+### Placement
+
+`overlays.config.json` is the single source of truth for where each overlay
+sits. `src/scene.js` names the hotspot that opens it and refers to it by id.
+Both the runtime and the mask builder read the config, deliberately — a
+transform written down twice is a transform that drifts.
+
+To fit a new capture, open `?align=<overlay id>` and move it until it lands.
+The keys are in the panel; `P` copies the block to paste back into the config.
+Align mode turns the base cutout off while it runs, because you cannot fit a
+detail capture onto a hatch that has been erased from the vehicle — and because
+every nudge makes the baked mask wrong. Rebuild the mask afterwards.
+
+### Baking the cut for production
+
+A splat hidden by the runtime cutout is at zero alpha, not gone: the
+level-of-detail tree still selects it, Spark still sorts it, the GPU still
+rasterises it. That is invisible on a desktop and it is budget spent on nothing
+in a headset.
+
+Once a layout has stopped moving, mark the permanent overlays `"bakeCut": true`
+and run:
+
+```bash
+npm run bake:base
+```
+
+It writes a new `.spz` beside the original — never over it — with those splats
+deleted. On this capture that is 117,750 of 6.2M, about 1.9%. An overlay that
+can still be faded out must *not* be baked: closing it would leave a hole.
+
+This does not produce a `.rad`. Spark's `build-lod` lives inside Spark's own
+repository and the published package exposes no `bin`, so there is nothing here
+to call — and nothing to miss, because `src/viewer.js` loads with `lod: true`
+and Spark builds the tree in a worker at load time from whatever `.spz` it is
+given.
+
+### Reading an .spz outside the browser
+
+Both tools need Spark's decoder, and Spark decodes in a `Worker` that Node does
+not have. `tools/lib/node-worker-shim.js` bridges the two APIs — Spark's worker
+body is a plain IIFE with no DOM in it, so the gap is only message plumbing.
+Install it before importing Spark.
+
 ## Deployment
 
 `.github/workflows/deploy-pages.yml` builds and publishes to GitHub Pages on
@@ -261,6 +365,20 @@ src/scene.js       everything specific to the capture
 src/viewer.js      renderer, Spark, up-axis correction, fit, frame loop
 src/controls.js    walk and orbit modes over one camera
 src/loader.js      two-phase loading wheel
+src/hotspots.js    the clickable circles, and whether one is in sight
+src/align.js       authoring tools: ?pick=1 and ?align=<id>
+src/overlay/       detail captures
+  OverlayManager.js  the overlays, their fades, and the cutout they drive
+  baseCutoutModifier.js  the Spark worldModifier that hides base splats
+  maskLoader.js      the baked grid, as a Data3DTexture
+  placement.js       one reading of an overlay transform, shared with the tools
+  overlayInput.js    named actions, and the keys bound to them
+src/debug/maskDebugView.js   the occupied cells, drawn (G)
 src/style.css
+tools/build-overlay-masks.js  bake the cutout mask
+tools/bake-base-cut.js        delete permanently hidden base splats
+tools/lib/node-worker-shim.js enough Worker for Spark to run under Node
+overlays.config.json          where each overlay sits; read by both sides
 public/data/       the .spz
+public/masks/      the baked occupancy mask
 ```

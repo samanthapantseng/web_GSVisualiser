@@ -1,0 +1,20 @@
+{
+    "version": 1,
+    "origin": [
+        37.75052047729492,
+        1.0307509994506836,
+        -1.6150076293945312
+    ],
+    "cellSize": 0.08,
+    "dilation": 2,
+    "minOpacity": 0.05,
+    "dimensions": [
+        38,
+        35,
+        40
+    ],
+    "overlays": [
+        "driver-ceiling-panel"
+    ],
+    "bits": 8
+}

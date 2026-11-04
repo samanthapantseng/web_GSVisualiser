@@ -214,9 +214,56 @@ export const TRAM = {
     sprintMultiplier: 3,
     doubleTapMs: 300,
 
+    // -----------------------------------------------------------------------
+    // Things worth a second look.
+    //
+    // A circle drawn on the capture, and what is behind it. The marker is a
+    // point in world metres — the same metres the file is in, because
+    // origin: "data" above keeps them the same thing — plus the direction the
+    // marked surface faces and how big the thing being marked is.
+    //
+    // `overlay` is a second .spz laid over the first. The two captures were
+    // trained apart and share no coordinate system at all, only a subject, so
+    // there is no number in either file that says where one sits in the other:
+    // the placement below was found by looking, with ?align=driver-ceiling-panel,
+    // and is the output of that. See src/align.js.
+    //
+    // Positions come from ?pick=1, which raycasts the splats and prints the
+    // point you clicked.
+    // -----------------------------------------------------------------------
+    hotspots: [
+        {
+            id: "driver-ceiling-panel",
+            label: "Ceiling service panel",
+            detail: "Scanned with the hatch open",
+
+            // On the hatch itself, in the cab ceiling.
+            position: [38.95, 2.32, 0.3],
+            // Which way the marked surface faces: down, out of the ceiling.
+            // The marker is hidden from the other side of it, which is what
+            // stops it hanging in the air over the roof when the vehicle is
+            // seen from outside.
+            normal: [0, -1, 0],
+            // The ring is drawn at this radius in metres, so it reads as
+            // painted on the panel rather than floating over it.
+            radius: 0.14,
+            // How close you have to be for it to appear. The cab is small and
+            // the saloon is forty metres of it, so this is deliberately short.
+            range: 5,
+
+            // Which detail capture this opens. The placement — where that
+            // capture sits in the vehicle, which way up it is, how big — lives
+            // in overlays.config.json, because the offline mask builder needs
+            // the same numbers and a transform written down twice is a
+            // transform that drifts. See the note at the top of that file.
+            overlayId: "driver-ceiling-panel",
+        },
+    ],
+
     hint:
         "<strong>Drag</strong> to look · <strong>WASD</strong> to walk " +
         "(double-tap <strong>W</strong> to run) · " +
+        "<strong>Circles</strong> open up · " +
         "<strong>F</strong> orbits it from outside · <strong>R</strong> resets · " +
         "<strong>H</strong> toggles readout",
 };

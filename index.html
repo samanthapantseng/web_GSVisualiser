@@ -26,6 +26,18 @@
 
         <div id="hint" hidden></div>
 
+        <!-- The caption under an open detail capture: what you are looking at,
+             how far off it is from arriving, and the way out of it. Filled in
+             by src/viewer.js; the circles that open it are built in
+             src/hotspots.js. -->
+        <div id="detail" hidden>
+            <div id="detailText">
+                <strong id="detailTitle"></strong>
+                <span id="detailNote"></span>
+            </div>
+            <button id="detailClose" type="button">Close <kbd>Esc</kbd></button>
+        </div>
+
         <script type="module" src="/src/main.js"></script>
     </body>
 </html>

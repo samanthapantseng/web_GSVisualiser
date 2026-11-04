@@ -202,3 +202,280 @@ body {
         animation-duration: 2.4s;
     }
 }
+
+/* ---------------------------------------------------------------------------
+   Hotspots (src/hotspots.js)
+
+   A ring on something in the capture, meaning there is more of it than the
+   scan in front of you shows. Drawn as DOM over the canvas rather than as
+   geometry in it — see the note at the top of src/hotspots.js for why — so
+   everything here is positioned by a transform the viewer writes each frame
+   and sized by --r, the ring's radius in CSS pixels at this distance.
+   --------------------------------------------------------------------------- */
+
+#hotspots {
+    position: fixed;
+    inset: 0;
+    z-index: 11;
+    /* The layer spans the window so a marker can be put anywhere in it. Only
+       the markers take the pointer, or this would swallow every drag meant
+       for the canvas underneath. */
+    pointer-events: none;
+}
+
+.hotspot {
+    --r: 20px;
+    position: absolute;
+    top: 0;
+    left: 0;
+    /* The viewer writes translate() into this; the half-offsets centre the
+       button on the point it was given. */
+    transform: translate(-50%, -50%);
+    display: grid;
+    place-items: center;
+    width: calc(var(--r) * 2);
+    height: calc(var(--r) * 2);
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--ink);
+    font: inherit;
+    cursor: pointer;
+    pointer-events: auto;
+    /* Only opacity is transitioned: the transform carries the position, and
+       easing that would leave every marker trailing the view by a tenth of a
+       second. */
+    transition: opacity 160ms linear;
+}
+
+.hotspot[hidden] {
+    display: none;
+}
+
+.hotspot-ring {
+    width: 100%;
+    height: 100%;
+    border: 2px solid rgba(238, 242, 244, 0.85);
+    border-radius: 50%;
+    /* The capture behind a marker is unlit bodywork in the dark half the time
+       and a lit window the other half, so the ring carries both a bright edge
+       and a dark one and is legible against either. */
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.45),
+        inset 0 0 0 1px rgba(0, 0, 0, 0.35),
+        0 0 14px rgba(140, 200, 255, 0.25);
+    background: radial-gradient(
+        circle,
+        rgba(140, 200, 255, 0.16) 0%,
+        rgba(140, 200, 255, 0.05) 55%,
+        transparent 70%
+    );
+    transition:
+        transform 140ms ease-out,
+        border-color 140ms ease-out,
+        box-shadow 140ms ease-out;
+}
+
+/* A dot in the middle, so a ring that has shrunk to its floor across a saloon
+   still reads as a marker rather than as a speck of dirt on the screen. */
+.hotspot-ring::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 4px;
+    height: 4px;
+    margin: -2px 0 0 -2px;
+    border-radius: 50%;
+    background: rgba(238, 242, 244, 0.9);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.6);
+}
+
+.hotspot:hover .hotspot-ring,
+.hotspot:focus-visible .hotspot-ring {
+    transform: scale(1.12);
+    border-color: #fff;
+    box-shadow:
+        0 0 0 1px rgba(0, 0, 0, 0.5),
+        0 0 22px rgba(140, 200, 255, 0.55);
+}
+
+.hotspot:focus {
+    outline: none;
+}
+
+.hotspot-label {
+    position: absolute;
+    /* Below the ring, whatever the ring's size is. */
+    top: calc(50% + var(--r) + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 9px;
+    border-radius: 7px;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    white-space: nowrap;
+    font-size: 12px;
+    opacity: 0;
+    /* The label must not widen the click target, or two markers side by side
+       would steal each other's presses. */
+    pointer-events: none;
+    transition: opacity 140ms linear;
+}
+
+/* Named only once you are close enough for the name to be about something you
+   can see. Across the saloon a dozen captions is a list, not a scene. */
+.hotspot.is-near .hotspot-label,
+.hotspot:hover .hotspot-label,
+.hotspot:focus-visible .hotspot-label {
+    opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .hotspot,
+    .hotspot-ring,
+    .hotspot-label {
+        transition: none;
+    }
+}
+
+/* ---------------------------------------------------------------------------
+   The caption under an open detail capture (src/overlay.js)
+   --------------------------------------------------------------------------- */
+
+#detail[hidden] {
+    display: none;
+}
+
+#detail {
+    position: fixed;
+    z-index: 12;
+    left: 50%;
+    bottom: 22px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    max-width: calc(100vw - 32px);
+    padding: 10px 10px 10px 16px;
+    border-radius: 12px;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+}
+
+#detailText {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#detailTitle {
+    font-size: 14px;
+}
+
+#detailNote {
+    opacity: 0.65;
+    font-size: 12px;
+}
+
+/* While the capture is still arriving: the caption is up, so the click is
+   visibly doing something, but it is not yet a caption for anything. */
+#detail.is-busy #detailNote {
+    opacity: 0.85;
+}
+
+#detailClose {
+    flex: none;
+    padding: 7px 12px;
+    border: 1px solid rgba(238, 242, 244, 0.22);
+    border-radius: 8px;
+    background: rgba(238, 242, 244, 0.06);
+    color: var(--ink);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+#detailClose[hidden] {
+    display: none;
+}
+
+#detailClose:hover {
+    background: rgba(238, 242, 244, 0.14);
+}
+
+#detail kbd,
+#align kbd {
+    padding: 1px 4px;
+    border: 1px solid rgba(238, 242, 244, 0.25);
+    border-radius: 4px;
+    font: inherit;
+    font-size: 10px;
+    opacity: 0.8;
+}
+
+/* ---------------------------------------------------------------------------
+   Authoring tools (src/align.js). Both only ever on screen behind a query
+   string, so they are plain and dense rather than designed.
+   --------------------------------------------------------------------------- */
+
+#align,
+#pick {
+    position: fixed;
+    z-index: 13;
+    right: 16px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: var(--panel);
+    backdrop-filter: blur(8px);
+    font-size: 12px;
+    pointer-events: none;
+}
+
+#align {
+    top: 16px;
+    max-width: 300px;
+}
+
+#pick {
+    bottom: 16px;
+    font-variant-numeric: tabular-nums;
+}
+
+#align pre {
+    margin: 8px 0;
+    font-size: 11px;
+    line-height: 1.6;
+}
+
+#align p {
+    margin: 0;
+    opacity: 0.7;
+    line-height: 2;
+}
+
+/* The align panel is read while both hands are on the keyboard, so the
+   scene.js block in it has to be selectable — which means it, alone among the
+   overlays, takes the pointer. */
+#align {
+    pointer-events: auto;
+    user-select: text;
+}
+
+#align pre {
+    white-space: pre-wrap;
+    user-select: all;
+    cursor: text;
+}
+
+#align .align-view {
+    margin: 0 0 6px;
+    opacity: 0.85;
+    line-height: 1.5;
+}
+
+#align .align-view em {
+    font-style: normal;
+    opacity: 0.6;
+}

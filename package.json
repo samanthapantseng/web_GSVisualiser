@@ -6,7 +6,9 @@
     "scripts": {
         "dev": "vite",
         "build": "vite build",
-        "preview": "vite preview"
+        "preview": "vite preview",
+        "build:masks": "node tools/build-overlay-masks.js",
+        "bake:base": "node tools/bake-base-cut.js"
     },
     "dependencies": {
         "@sparkjsdev/spark": "^2.4.0",

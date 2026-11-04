@@ -2,6 +2,11 @@ import * as THREE from "three";
 import { SparkRenderer, SplatMesh } from "@sparkjsdev/spark";
 import { createLoadingWheel } from "./loader.js";
 import { createControls } from "./controls.js";
+import { createHotspots } from "./hotspots.js";
+import { createOverlayManager } from "./overlay/OverlayManager.js";
+import { createMaskDebugView } from "./debug/maskDebugView.js";
+import { bindKeyboard, overlayActions } from "./overlay/overlayInput.js";
+import { createAligner, createPicker } from "./align.js";
 
 // ---------------------------------------------------------------------------
 // The viewer. One capture, handed in from src/main.js.
@@ -153,6 +158,18 @@ export function startViewer(scene) {
         // the file's origin actually sits, and what the compartment scans
         // will be aligned against.
         axes: params.get("axes") === "1",
+
+        // The circles. Things in the capture worth a second look, each one a
+        // point in world metres and, usually, a second .spz to lay over it.
+        // See src/scene.js. ?hotspots=0 takes them away.
+        hotspots: params.get("hotspots") === "0" ? [] : (scene.hotspots ?? []),
+        // Authoring tools, both off unless asked for. See src/align.js.
+        // Seven mask fetches per splat instead of one, for a feathered cut
+        // edge. Off by default: it is a Quest-visible cost for a
+        // difference you only see at a cell boundary. ?softCut=1.
+        softCut: params.get("softCut") === "1",
+        pick: params.get("pick") === "1",
+        align: params.get("align") || "",
     };
 
     const statusEl = document.getElementById("status");
@@ -160,6 +177,10 @@ export function startViewer(scene) {
     const hudHeadEl = document.getElementById("hudHead");
     const hudDetailEl = document.getElementById("hudDetail");
     const hintEl = document.getElementById("hint");
+    const detailEl = document.getElementById("detail");
+    const detailTitleEl = document.getElementById("detailTitle");
+    const detailNoteEl = document.getElementById("detailNote");
+    const detailCloseEl = document.getElementById("detailClose");
 
     document.title = scene.title;
 
@@ -328,6 +349,28 @@ export function startViewer(scene) {
             wheel.done();
             hintEl.hidden = false;
             hudEl.hidden = false;
+            // The markers' sight lines are tested against the collision grid,
+            // which fitWorld has only just built. Showing them before it
+            // exists would show every one of them through the bodywork.
+            hotspots.setEnabled(!CONFIG.align);
+            // Align mode always wants the picker: fitting two captures is
+            // mostly a matter of picking the same feature on each and reading
+            // off how far apart they landed.
+            if (CONFIG.pick || CONFIG.align) {
+                picker = createPicker({
+                    renderer,
+                    camera,
+                    bounds,
+                    targets: () => [
+                        { name: "vehicle", mesh: splats },
+                        {
+                            name: "detail",
+                            mesh: overlays?.entry(CONFIG.align || openId)?.mesh,
+                        },
+                    ],
+                });
+            }
+            if (CONFIG.align) startAligning();
         },
     });
     world.add(splats);
@@ -342,6 +385,176 @@ export function startViewer(scene) {
         console.error("Splat load failed:", err);
         wheel.fail(`Could not load ${CONFIG.url} — ${err.message || err}`);
     });
+
+    // -----------------------------------------------------------------------
+    // Things worth a second look
+    //
+    // A circle on the capture says there is more here than the scan in front
+    // of you shows, and clicking it lays the detail scan over the spot it
+    // belongs to. The vehicle stays where it is and the camera does not move:
+    // the hatch opens in front of you, in the cab you are standing in.
+    //
+    // Three pieces, kept apart because they fail separately:
+    //   hotspots  the markers, and whether you can see one from here
+    //   overlay   the second capture, its placement and the crossfade
+    //   here      the caption and the one key that shuts it again
+    // -----------------------------------------------------------------------
+
+    // Filled in once overlays.config.json and the baked mask have arrived.
+    // Everything that touches it is either a user action (which cannot happen
+    // before the vehicle has loaded, which takes far longer) or guarded.
+    let overlays = null;
+    let debugView = null;
+    let openId = null;
+
+    const hotspots = createHotspots({
+        camera,
+        renderer,
+        bounds,
+        hotspots: CONFIG.hotspots,
+        onActivate: openHotspot,
+    });
+    // Off until the capture has loaded: see the mesh's onLoad above.
+    hotspots.setEnabled(false);
+
+    let picker = null;
+    let aligner = null;
+
+    const overlaysReady = (async () => {
+        const config = await fetch("overlays.config.json").then((r) => {
+            if (!r.ok) throw new Error(`${r.status} fetching overlays.config.json`);
+            return r.json();
+        });
+        overlays = await createOverlayManager({
+            world3,
+            base: splats,
+            config,
+            softEdge: CONFIG.softCut,
+            onChange: () => invalidate(),
+        });
+        debugView = createMaskDebugView({ scene: world3, mask: overlays.mask });
+        bindKeyboard(
+            overlayActions({
+                overlays,
+                debugView,
+                onStatus: (text) => console.log(`[overlays] ${text}`),
+            }),
+        );
+        console.log(
+            `Overlays: ${overlays.ids.length} (${overlays.ids.join(", ")}) · ` +
+                `mask ${overlays.mask.dimensions.toArray().join("x")} cells of ` +
+                `${overlays.mask.cellSize} m, ` +
+                `${(overlays.mask.bytes / 1024).toFixed(0)} KB, dilation ` +
+                `${overlays.mask.dilation} · base splat budget ` +
+                `${CONFIG.splatBudget > 0 ? CONFIG.splatBudget.toLocaleString() : "Spark default"}` +
+                `${CONFIG.softCut ? " · soft cut edge on" : ""}`,
+        );
+        return overlays;
+    })().catch((err) => {
+        // A missing mask must not take the viewer down with it: without the
+        // cutout the overlays still open, they just do not hide what is
+        // underneath them.
+        console.error(
+            "Overlays are off — " + (err.message || err) +
+                "\nIf the mask is missing or stale: npm run build:masks",
+        );
+        return null;
+    });
+
+    function openHotspot(hotspot) {
+        const id = hotspot.overlayId;
+        if (!id || !overlays) return;
+        hotspots.setEnabled(false);
+        openId = id;
+        overlays.fadeIn(id);
+        showDetail(hotspot);
+    }
+
+    function closeDetail() {
+        if (!openId || CONFIG.align || !overlays) return;
+        overlays.fadeOut(openId);
+        openId = null;
+        hotspots.setEnabled(true);
+        if (detailEl) detailEl.hidden = true;
+    }
+
+    // The caption under an open detail capture. A 14 MB capture is seconds of
+    // waiting, and silence in those seconds reads as a click that did nothing,
+    // so the caption goes up on the click and the note catches up.
+    function showDetail(hotspot) {
+        if (!detailEl) return;
+        detailEl.hidden = false;
+        detailTitleEl.textContent = hotspot?.label ?? "";
+        detailCloseEl.hidden = Boolean(CONFIG.align);
+        detailNoteEl.textContent = "Opening…";
+        detailEl.classList.add("is-busy");
+    }
+
+    // Swaps "Opening…" for the caption once the capture is actually there.
+    // Called from the frame loop, which is the only place that knows.
+    function refreshDetailNote() {
+        if (!openId || !detailEl || detailEl.hidden) return;
+        if (!detailEl.classList.contains("is-busy")) return;
+        const entry = overlays?.entry(openId);
+        if (!entry?.mesh?.isInitialized) return;
+        detailEl.classList.remove("is-busy");
+        const hotspot = CONFIG.hotspots.find((h) => h.overlayId === openId);
+        detailNoteEl.textContent = hotspot?.detail ?? "";
+    }
+
+    detailCloseEl?.addEventListener("click", closeDetail);
+    window.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeDetail();
+    });
+
+    // ?align=<overlay id>. Opens that overlay straight away and binds the keys
+    // that move it, so the fit can be found by looking at it. See
+    // src/align.js.
+    async function startAligning() {
+        if (!(await overlaysReady)) return;
+        const hotspot =
+            CONFIG.hotspots.find((h) => h.overlayId === CONFIG.align) ?? {
+                id: CONFIG.align,
+                overlayId: CONFIG.align,
+                // Without a hotspot there is nothing to turn and grow about
+                // but the capture's own origin, which is a poor pivot. Align
+                // from a hotspot where there is one.
+                position: overlays.placementOf(CONFIG.align)?.position,
+            };
+        if (!overlays.placementOf(CONFIG.align)) {
+            console.warn(
+                `No overlay "${CONFIG.align}" in overlays.config.json. Known: ` +
+                    overlays.ids.join(", "),
+            );
+            return;
+        }
+
+        // The mask was baked for the placement in the config, so every nudge
+        // makes it wrong. More to the point, you cannot fit a detail capture
+        // onto a hatch that has been erased from the vehicle — the cutout has
+        // to be off to align against what is underneath.
+        overlays.setCutEnabled(false);
+        console.log(
+            "Align mode: base cutout off (the mask is baked for the saved " +
+                "placement). Run `npm run build:masks` after saving new numbers.",
+        );
+
+        overlays.holdFade(CONFIG.align);
+        aligner = createAligner({
+            overlay: overlays,
+            hotspot,
+            invalidate: () => invalidate(),
+        });
+        window.__align = aligner;
+        // The placement panel is drawn before the capture exists, so it has to
+        // be told once it does.
+        const poll = setInterval(() => {
+            aligner.refresh();
+            if (overlays.entry(CONFIG.align)?.mesh?.isInitialized) {
+                clearInterval(poll);
+            }
+        }, 400);
+    }
 
     // Where the splat data actually lives depends on two options. With
     // lod: true it moves off packedSplats onto its .lodSplats, and
@@ -717,6 +930,9 @@ export function startViewer(scene) {
     // which makes a frame counter read 1 fps on a renderer that is perfectly
     // fast — timing a render directly is the way to tell the two apart.
     window.__gs = {
+        // three.js itself, so a console session can build a Raycaster or a
+        // Vector3 without importing anything.
+        THREE,
         renderer,
         camera,
         spark,
@@ -725,6 +941,10 @@ export function startViewer(scene) {
         world,
         controls,
         bounds,
+        get overlays() {
+            return overlays;
+        },
+        hotspots,
         invalidate,
         get state() {
             return { refined, lastChange, changes, elapsed: timer.getElapsed() };
@@ -739,6 +959,14 @@ export function startViewer(scene) {
         const now = timer.getElapsed();
 
         controls.update(dt);
+        // Cheap, and it has to run on every animation frame rather than every
+        // rendered one: the markers are DOM, so they are not redrawn by the
+        // renderer and would otherwise lag a frame behind the view.
+        hotspots.update();
+        // Returns true while a detail capture is still fading, which is a
+        // change nothing else in the loop knows about.
+        overlays?.update(dt);
+        refreshDetailNote();
 
         if (cameraMoved()) markChanged(now);
         // Belt and braces: onDirty is the signal, this is the state behind it.
