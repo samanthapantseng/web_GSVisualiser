@@ -28,8 +28,13 @@ Opens standing inside the capture, in walk mode.
 | `R` | back to the opening pose |
 | `H` | show or hide the readout |
 
-Walk mode takes pointer lock when the browser allows it, and falls back to
-look-while-dragging when it does not — inside an iframe, for example.
+Looking around requires holding the primary mouse button. There is no pointer
+lock, deliberately: it would let the view follow the mouse for as long as the
+lock was held, with nothing on screen to say so, and full screen makes that
+worse rather than better — no window edge to escape to, so a page that looks
+still is turning with every stray movement of the hand. Dragging costs some
+reach and gives back the thing that matters, which is that the camera only
+moves when you ask it to.
 
 Keystrokes carrying cmd, ctrl or alt are ignored, so system and browser
 shortcuts do not drive the camera. Shift is deliberately unbound for the same

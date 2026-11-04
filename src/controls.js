@@ -246,19 +246,14 @@ export function createControls({ camera, renderer, bounds, config }) {
         pitch = Math.asin(THREE.MathUtils.clamp(forward.y, -1, 1));
     }
 
-    // Taking the camera, and handing it back. Split from setMode because the
-    // opening pose needs to enter walk mode without asking for pointer lock:
-    // there has been no user gesture at that point, and a refused lock is an
-    // uncaught promise rejection for nothing.
-    function enterWalk({ lock = false } = {}) {
+    // Taking the camera, and handing it back.
+    function enterWalk() {
         mode = "walk";
         orbit.enabled = false;
-        if (lock) lockPointer();
     }
 
     function enterOrbit({ aimAhead = false } = {}) {
         mode = "orbit";
-        document.exitPointerLock?.();
         orbit.enabled = true;
         if (aimAhead) {
             // Put the centre of rotation somewhere plausible ahead of wherever
@@ -279,7 +274,7 @@ export function createControls({ camera, renderer, bounds, config }) {
         if (next === mode) return;
         if (next === "walk") {
             syncWalkFromCamera();
-            enterWalk({ lock: true });
+            enterWalk();
         } else {
             enterOrbit({ aimAhead: true });
         }
@@ -335,37 +330,36 @@ export function createControls({ camera, renderer, bounds, config }) {
     const onBlur = () => {
         keys.clear();
         sprinting = false;
+        // Releasing the button over another window never reaches us, and a
+        // look left switched on would turn with the mouse on the way back.
+        dragLooking = false;
         velocity.set(0, 0, 0);
     };
 
-    // Pointer lock is refused outright in a cross-document iframe, which is
-    // where this ends up whenever the viewer is embedded rather than opened in
-    // a tab of its own. Dragging to look is the fallback: worse than lock,
-    // because the mouse runs out of desk, but it keeps walk mode usable
-    // instead of leaving it moving with no way to turn.
-    function lockPointer() {
-        try {
-            const result = canvas.requestPointerLock?.();
-            // Newer browsers return a promise; a refusal there is expected, so
-            // swallow it rather than letting it surface as an uncaught error.
-            result?.catch?.(() => {});
-        } catch {
-            // Older browsers throw synchronously instead.
-        }
-    }
-
+    // Looking around takes a held button, deliberately. Pointer lock would be
+    // the usual way to do this — it is what every first-person game uses, and
+    // it lets the mouse turn further than the desk allows — but it means the
+    // view follows the mouse for as long as the lock is held, with nothing on
+    // screen to say so. Full screen makes that worse rather than better: there
+    // is no window edge to escape to, so a page that looks still is in fact
+    // turning with every stray movement of the hand.
+    //
+    // Dragging costs some reach and gives back the thing that matters, which
+    // is that the camera only moves when you ask it to.
     let dragLooking = false;
-    const onMouseDown = () => {
-        if (mode === "walk") dragLooking = true;
+    const onMouseDown = (event) => {
+        // Primary button only: the right one is for the orbit's pan, and a
+        // middle-click drag should not swing the view either.
+        if (mode === "walk" && event.button === 0) dragLooking = true;
     };
+    // On window rather than the canvas, so letting go anywhere stops the look
+    // rather than leaving it stuck on.
     const onMouseUp = () => {
         dragLooking = false;
     };
 
     const onMouseMove = (event) => {
-        if (mode !== "walk") return;
-        const locked = document.pointerLockElement === canvas;
-        if (!locked && !dragLooking) return;
+        if (mode !== "walk" || !dragLooking) return;
         yaw -= event.movementX * config.lookSpeed;
         pitch = THREE.MathUtils.clamp(
             pitch - event.movementY * config.lookSpeed,
@@ -374,21 +368,12 @@ export function createControls({ camera, renderer, bounds, config }) {
         );
     };
 
-    // Clicking the canvas in walk mode takes the pointer back after Escape has
-    // released it, which is how anyone will expect to resume.
-    const onCanvasClick = () => {
-        if (mode === "walk" && document.pointerLockElement !== canvas) {
-            lockPointer();
-        }
-    };
-
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", onBlur);
     window.addEventListener("mousemove", onMouseMove);
     window.addEventListener("mouseup", onMouseUp);
     canvas.addEventListener("mousedown", onMouseDown);
-    canvas.addEventListener("click", onCanvasClick);
 
     // -----------------------------------------------------------------------
     // Per-frame
@@ -521,7 +506,6 @@ export function createControls({ camera, renderer, bounds, config }) {
             window.removeEventListener("mousemove", onMouseMove);
             window.removeEventListener("mouseup", onMouseUp);
             canvas.removeEventListener("mousedown", onMouseDown);
-            canvas.removeEventListener("click", onCanvasClick);
             orbit.dispose();
         },
     };
