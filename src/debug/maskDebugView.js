@@ -3,7 +3,9 @@ import * as THREE from "three";
 // ---------------------------------------------------------------------------
 // The occupancy grid, drawn.
 //
-// Toggled with G. The one way to answer "is the cut where I think it is?"
+// Toggled with G. Draws the occupied cells and, over them, each hull-mode
+// overlay's convex hull as a wireframe (from public/masks/overlay-hulls.json,
+// fetched on first use). The one way to answer "is the cut where I think it is?"
 // without guessing from a hole in the scene — and the thing to reach for when
 // a coarse distant splat bleeds past an edge, because it shows directly
 // whether `dilation` reaches far enough.
@@ -24,12 +26,89 @@ const COLOURS = [
     0x62b6ff, 0xffb347, 0x7ddf64, 0xff6b9d, 0xc792ea, 0xffd166, 0x4ecdc4, 0xf25c54,
 ];
 
-export function createMaskDebugView({ scene, mask }) {
+// The hull meshes the mask builder writes beside the mask, as wireframes.
+// Lines rather than faces, and drawn over everything, because the question
+// they answer is "where does the hull reach?" and the answer is usually
+// inside or behind a wall.
+async function loadHullWireframes({ base, mask }) {
+    const response = await fetch(`${base}overlay-hulls.json`);
+    if (!response.ok) {
+        console.warn(
+            `${response.status} fetching overlay-hulls.json; no hulls to draw. ` +
+                `Rebuild the mask: npm run build:masks`,
+        );
+        return [];
+    }
+    const data = await response.json();
+    const same =
+        data.overlays.length === mask.overlays.length &&
+        data.overlays.every((id, i) => id === mask.overlays[i]);
+    if (!same) {
+        console.warn(
+            `overlay-hulls.json is for [${data.overlays.join(", ")}] but the mask ` +
+                `is for [${mask.overlays.join(", ")}]; not drawing hulls. ` +
+                `Rebuild: npm run build:masks`,
+        );
+        return [];
+    }
+
+    const lines = [];
+    data.hulls.forEach((hull, index) => {
+        if (!hull) return;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute(
+            "position",
+            new THREE.Float32BufferAttribute(hull.vertices, 3),
+        );
+        geometry.setIndex(hull.triangles);
+        const wire = new THREE.LineSegments(
+            new THREE.WireframeGeometry(geometry),
+            new THREE.LineBasicMaterial({
+                // The overlay's colour washed toward white: the stacked cells
+                // underneath are the full colour and close to opaque, and
+                // lines of the same hue vanish into them.
+                color: new THREE.Color(COLOURS[index % COLOURS.length]).lerp(
+                    new THREE.Color(0xffffff),
+                    0.75,
+                ),
+                transparent: true,
+                opacity: 1,
+                depthTest: false,
+                depthWrite: false,
+            }),
+        );
+        geometry.dispose();
+        wire.renderOrder = 1000;
+        wire.frustumCulled = false;
+        wire.name = `hull:${data.overlays[index]}`;
+        lines.push(wire);
+        console.log(
+            `Hull ${data.overlays[index]}: ${hull.vertices.length / 3} vertices, ` +
+                `${hull.triangles.length / 3} faces, ${hull.volume} m³`,
+        );
+    });
+    return lines;
+}
+
+export function createMaskDebugView({ scene, mask, base = "masks/", onChange }) {
     let mesh = null;
     let built = false;
+    // Cells and hulls toggle together.
+    const group = new THREE.Group();
+    group.name = "mask-debug";
+    group.visible = false;
+    scene.add(group);
 
     function build() {
         built = true;
+        if (!group.parent) scene.add(group);
+        loadHullWireframes({ base, mask })
+            .then((lines) => {
+                for (const line of lines) group.add(line);
+                if (lines.length) onChange?.();
+            })
+            .catch((error) => console.warn("Could not draw the hulls:", error));
+
         const [nx, ny, nz] = [
             mask.dimensions.x,
             mask.dimensions.y,
@@ -81,8 +160,7 @@ export function createMaskDebugView({ scene, mask }) {
         });
         mesh.instanceMatrix.needsUpdate = true;
         if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
-        mesh.visible = false;
-        scene.add(mesh);
+        group.add(mesh);
 
         console.log(
             `Mask debug view: ${cells.length.toLocaleString()} occupied cells of ` +
@@ -93,18 +171,19 @@ export function createMaskDebugView({ scene, mask }) {
     return {
         toggle() {
             if (!built) build();
-            if (!mesh) return false;
-            mesh.visible = !mesh.visible;
-            return mesh.visible;
+            group.visible = !group.visible;
+            return group.visible;
         },
         get visible() {
-            return mesh?.visible ?? false;
+            return group.visible;
         },
         dispose() {
-            if (!mesh) return;
-            mesh.removeFromParent();
-            mesh.geometry.dispose();
-            mesh.material.dispose();
+            group.removeFromParent();
+            group.traverse((object) => {
+                object.geometry?.dispose();
+                object.material?.dispose();
+            });
+            group.clear();
             mesh = null;
             built = false;
         },

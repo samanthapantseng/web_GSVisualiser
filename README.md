@@ -32,7 +32,7 @@ Opens standing inside the capture, in walk mode.
 | `1`–`9` | toggle an overlay directly (by position in `overlays.config.json`) |
 | `0` | toggle every overlay |
 | `M` | base cutout on/off — debug |
-| `G` | show the occupied mask cells — debug, desktop only |
+| `G` | show the occupied mask cells and each overlay's cut hull as a wireframe — debug, desktop only |
 | `[` `]` | shorter / longer fades |
 
 Looking around requires holding the primary mouse button. There is no pointer
@@ -257,8 +257,9 @@ underneath it so the two do not blend into a double image.
 
 The hiding is automatic. Nothing is measured by hand and no boxes are placed:
 `npm run build:masks` reads each overlay capture, puts every splat centre
-through that overlay's world transform, and marks the cells of a shared
-occupancy grid. At runtime a Spark `worldModifier` on the base capture reads
+through that overlay's world transform, cleans out stray specks, and marks
+every cell of a shared occupancy grid that lies inside the convex hull of what
+is left. At runtime a Spark `worldModifier` on the base capture reads
 that grid once per splat and multiplies the splat's alpha down by however
 visible the overlays occupying its cell are. Fading an overlay in therefore
 fades the base out underneath it, in the same frame and from the same number,
@@ -278,24 +279,52 @@ which looks like a dilation problem rather than the stale file it is. The
 loader refuses a mask whose overlay list no longer matches the config, but it
 cannot detect a moved overlay — so rebuild.
 
+### Cut modes
+
+**`hull` (the default)** cuts the whole volume the overlay spans, empty space
+included. That matters whenever the overlay shows *less* than the base
+somewhere: the base has a closed door, the overlay is the same door standing
+open. The doorway in the overlay is air — no splats — so a cut that only
+follows the splats leaves the base's closed door showing through the opening.
+The convex hull covers it.
+
+A hull is only as good as its most extreme point, so the centres are cleaned
+first: faint splats go (`minOpacity`), then any splat whose mean distance to
+its 16 nearest neighbours is more than `outlierStd` standard deviations above
+average, then everything outside the `keepFraction` nearest the median centre.
+
+**`shell`** marks only the cells the splats land in, thresholded by
+`minCellSplats`. Opt in per overlay with `"cutMode": "shell"` for a capture
+whose hull would swallow too much — something strongly concave, where the hull
+would also cut what it wraps around.
+
 ### Tuning
 
-| in `overlays.config.json` | what it does |
+All of these go in `grid` in `overlays.config.json`; any of the hull settings
+and `minCellSplats` can also be set on a single overlay to override it there.
+
+| setting | what it does |
 |---|---|
 | `cellSize` (0.08 m) | grid resolution. Finer gives a cleaner cut edge and costs memory as the cube of itself. |
 | `dilation` (2 cells) | how far the cut grows outward. Raise it if coarse distant LoD splats bleed past the edge — those are merged parents metres across, standing in for a whole region, and their centres sit outside the capture. |
 | `minOpacity` (0.05) | splats fainter than this do not cut. The haze a close-range capture leaves around itself. |
-| `minCellSplats` (25) | splats a cell needs before it counts. **The knob that decides whether the cut is the thing you scanned or the room around it.** |
+| `outlierStd` (2.0) | hull: statistical outlier cut-off, in standard deviations of the mean 16-neighbour distance. Lower removes more. |
+| `keepFraction` (0.98) | hull: fraction of the remaining splats kept, nearest the median centre first. Lower trims the hull's reach. |
+| `warnVolumeFactor` (3) | hull: warn when the hull is this many times the volume of the box the middle 96% of the splats span. |
+| `minCellSplats` (25) | shell: splats a cell needs before it counts. |
 
-`minCellSplats` is worth understanding before you change it. A detail capture
-is never only its subject: this one carries the hatch, the panel hanging open
-below it, and a halo of thin, sparse, badly reconstructed surroundings. With no
-threshold the cut is a block 2.8 x 2.6 x 3.0 m reaching from the roof down past
-the driver's seat. Asking for a couple of dozen splats per cell drops the haze
-and keeps the panel, because a real surface puts dozens of splats through an
-8 cm cell and haze puts one or two. The builder prints the world-space box each
-overlay ends up cutting — read it, and if it reaches somewhere it should not,
-that is the number to raise.
+The builder prints, per overlay, the splat count before and after cleaning,
+the hull's volume and size, its ratio to that core box, and the world-space box
+it finally cuts. If the ratio passes `warnVolumeFactor` it also lists the splats
+at the hull's extremes — index in the capture, position, opacity and how
+isolated each one is — which is where to look when the hull reaches somewhere
+it should not. `G` draws the hull itself.
+
+For `shell` overlays, `minCellSplats` is the knob that decides whether the cut
+is the thing you scanned or the room around it. A detail capture is never only
+its subject: this one carries the hatch, the panel hanging open below it, and a
+halo of thin, sparse, badly reconstructed surroundings. A real surface puts
+dozens of splats through an 8 cm cell and haze puts one or two.
 
 `?softCut=1` feathers the cut edge by averaging over a cell and its six
 neighbours. Seven texture fetches per splat instead of one, so it is off by
@@ -376,9 +405,10 @@ src/overlay/       detail captures
 src/debug/maskDebugView.js   the occupied cells, drawn (G)
 src/style.css
 tools/build-overlay-masks.js  bake the cutout mask
+tools/lib/hull-cut.js         outlier cleaning, convex hull, hull voxelizing
 tools/bake-base-cut.js        delete permanently hidden base splats
 tools/lib/node-worker-shim.js enough Worker for Spark to run under Node
 overlays.config.json          where each overlay sits; read by both sides
 public/data/       the .spz
-public/masks/      the baked occupancy mask
+public/masks/      the baked occupancy mask, and the hulls the G view draws
 ```

@@ -1,20 +1,23 @@
 {
-    "version": 1,
+    "version": 2,
     "origin": [
-        37.75052047729492,
-        1.0307509994506836,
-        -1.6150076293945312
+        38.206414947509764,
+        1.110145936012268,
+        -1.3629562759399414
     ],
     "cellSize": 0.08,
     "dilation": 2,
     "minOpacity": 0.05,
     "dimensions": [
-        38,
-        35,
-        40
+        29,
+        31,
+        35
     ],
     "overlays": [
         "driver-ceiling-panel"
     ],
-    "bits": 8
+    "bits": 8,
+    "cutModes": [
+        "hull"
+    ]
 }

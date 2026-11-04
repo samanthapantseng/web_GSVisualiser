@@ -432,7 +432,11 @@ export function startViewer(scene) {
             softEdge: CONFIG.softCut,
             onChange: () => invalidate(),
         });
-        debugView = createMaskDebugView({ scene: world3, mask: overlays.mask });
+        debugView = createMaskDebugView({
+            scene: world3,
+            mask: overlays.mask,
+            onChange: () => invalidate(),
+        });
         bindKeyboard(
             overlayActions({
                 overlays,
