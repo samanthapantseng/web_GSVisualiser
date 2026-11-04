@@ -137,7 +137,7 @@ function dilate(bits, nx, ny, nz, cells) {
 }
 
 async function main() {
-    const configPath = resolve(ROOT, "overlays.config.json");
+    const configPath = resolve(ROOT, "public/overlays.config.json");
     const config = JSON.parse(readFileSync(configPath, "utf8"));
     const { cellSize, dilation, minOpacity } = gridSettings(config);
     const overlays = config.overlays ?? [];

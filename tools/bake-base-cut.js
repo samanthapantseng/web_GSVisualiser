@@ -51,7 +51,7 @@ function arg(name, fallback) {
 
 async function main() {
     const config = JSON.parse(
-        readFileSync(resolve(ROOT, "overlays.config.json"), "utf8"),
+        readFileSync(resolve(ROOT, "public/overlays.config.json"), "utf8"),
     );
     const meta = JSON.parse(
         readFileSync(resolve(ROOT, "public/masks/overlay-mask.json"), "utf8"),
