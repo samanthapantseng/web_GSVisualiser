@@ -258,6 +258,30 @@ export const TRAM = {
             // transform that drifts. See the note at the top of that file.
             overlayId: "driver-ceiling-panel",
         },
+        {
+            id: "back-panel",
+            label: "Back panel",
+            detail: "Scanned with the hatch open",
+
+            // On the lime-green lid of the desk in the cab at the origin end,
+            // on the centreline. The lid is closed in the tram capture and
+            // open in the detail one, which is what the overlay shows.
+            //
+            // The placement in overlays.config.json was fitted numerically
+            // rather than by eye: an ICP of the detail capture's box and rim
+            // against the tram's splats round this desk, from each quarter
+            // turn of yaw. Two orientations fit about as well — the box is
+            // nearly symmetric — and the one used has the lid hinged on the
+            // window side, opposite the keyhole on the closed lid, so it opens
+            // away from the aisle with the buttons facing you.
+            position: [-1.89, 0.72, -0.09],
+            // The lid faces up, tipped a little towards the aisle.
+            normal: [0, 1, 0],
+            radius: 0.14,
+            range: 5,
+
+            overlayId: "back-panel",
+        },
     ],
 
     hint:

@@ -42,6 +42,18 @@
             "scale": 1,
 
             "bakeCut": false
+        },
+        {
+            "id": "back-panel",
+            "url": "data/flexity_BackPanel.spz",
+            "source": "public/data/flexity_BackPanel.spz",
+
+            "upAxis": "-y",
+            "position": [-1.677, 0.674, -0.097],
+            "rotation": [-1.18, 89.62, 0.01],
+            "scale": 1,
+
+            "bakeCut": false
         }
     ]
 }
