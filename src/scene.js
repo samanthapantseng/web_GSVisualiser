@@ -207,7 +207,7 @@ export const TRAM = {
     // and you can walk out through one. This closes them.
     wallMargin: 0.25,
 
-    // Double-tap W (or the up arrow) and hold to run. 1.4 m/s is a walking
+    // Double-tap W and hold to run. 1.4 m/s is a walking
     // pace, which is right for looking at something and wrong for crossing
     // forty-three metres of it; 3x covers the length in about ten seconds.
     // Letting go of forward drops back to a walk.
@@ -282,12 +282,40 @@ export const TRAM = {
 
             overlayId: "back-panel",
         },
+        {
+            id: "back-panel-lower",
+            label: "Fuse box",
+            detail: "Photographed behind the lower panel",
+
+            // On the white cabinet door under the lime lid, which faces down
+            // the aisle.
+            position: [-1.75, 0.4, -0.09],
+            normal: [1, 0, 0],
+            radius: 0.14,
+            range: 5,
+
+            // A photograph rather than a scan: `image` instead of
+            // `overlayId` opens it as a popup over the view. This is a
+            // 2560 px copy of flexity_BackPanel_lower.jpeg; the 16 MB original
+            // is too heavy to fetch on a click.
+            image: "data/flexity_BackPanel_lower_web.jpg",
+        },
     ],
 
+    // The controls bar along the bottom: an icon or the keys themselves for
+    // each control, then a word for what it does. Styled in style.css under
+    // #hint.
     hint:
-        "<strong>Drag</strong> to look · <strong>WASD</strong> to walk " +
-        "(double-tap <strong>W</strong> to run) · " +
-        "<strong>Circles</strong> open up · " +
-        "<strong>F</strong> orbits it from outside · <strong>R</strong> resets · " +
-        "<strong>H</strong> toggles readout",
+        '<span class="hint-item">' +
+        '<svg class="hint-icon hint-mouse" viewBox="0 0 32 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="11" y="2" width="10" height="18" rx="5"/><path d="M16 2v7M11 9h10"/><path d="M16 2.3A5 5 0 0 0 11 7v2h5z" fill="currentColor" stroke="none"/><path d="M7 8l-3 3 3 3M25 8l3 3-3 3"/></svg>' +
+        '<span class="hint-label">Drag to look</span></span>' +
+        '<span class="hint-item"><span class="hint-wasd">' +
+        "<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>" +
+        '<span class="hint-label">Walk<small>double-tap W to run</small></span></span>' +
+        '<span class="hint-item"><span class="hint-keys"><kbd>↑</kbd><kbd>↓</kbd></span>' +
+        '<span class="hint-label">Eye height</span></span>' +
+        '<span class="hint-item"><span class="hint-spot" aria-hidden="true"></span>' +
+        '<span class="hint-label">Click circles to open</span></span>' +
+        '<span class="hint-item"><kbd>R</kbd>' +
+        '<span class="hint-label">Reset view</span></span>',
 };

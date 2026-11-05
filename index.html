@@ -37,6 +37,22 @@
             </div>
             <button id="detailClose" type="button">Close <kbd>Esc</kbd></button>
         </div>
+        <!-- The same way out, where a close button is expected to be. -->
+        <button id="detailX" class="close-x" type="button" aria-label="Close detail view" hidden>&times;</button>
+
+        <div id="photo" hidden>
+            <figure id="photoFigure">
+                <button id="photoX" class="close-x" type="button" aria-label="Close photo">&times;</button>
+                <img id="photoImg" alt="" />
+                <figcaption>
+                    <span id="photoText">
+                        <strong id="photoTitle"></strong>
+                        <span id="photoNote"></span>
+                    </span>
+                    <button id="photoClose" type="button">Close <kbd>Esc</kbd></button>
+                </figcaption>
+            </figure>
+        </div>
 
         <script type="module" src="/src/main.js"></script>
     </body>

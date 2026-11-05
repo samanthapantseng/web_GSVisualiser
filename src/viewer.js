@@ -181,6 +181,7 @@ export function startViewer(scene) {
     const detailTitleEl = document.getElementById("detailTitle");
     const detailNoteEl = document.getElementById("detailNote");
     const detailCloseEl = document.getElementById("detailClose");
+    const detailXEl = document.getElementById("detailX");
 
     document.title = scene.title;
 
@@ -348,7 +349,7 @@ export function startViewer(scene) {
             fitWorld();
             wheel.done();
             hintEl.hidden = false;
-            hudEl.hidden = false;
+            hudEl.hidden = !new URLSearchParams(location.search).has("hud");
             // The markers' sight lines are tested against the collision grid,
             // which fitWorld has only just built. Showing them before it
             // exists would show every one of them through the bodywork.
@@ -466,6 +467,10 @@ export function startViewer(scene) {
     });
 
     function openHotspot(hotspot) {
+        if (hotspot.image) {
+            openPhoto(hotspot);
+            return;
+        }
         const id = hotspot.overlayId;
         if (!id || !overlays) return;
         hotspots.setEnabled(false);
@@ -480,6 +485,7 @@ export function startViewer(scene) {
         openId = null;
         hotspots.setEnabled(true);
         if (detailEl) detailEl.hidden = true;
+        if (detailXEl) detailXEl.hidden = true;
     }
 
     // The caption under an open detail capture. A 14 MB capture is seconds of
@@ -490,6 +496,7 @@ export function startViewer(scene) {
         detailEl.hidden = false;
         detailTitleEl.textContent = hotspot?.label ?? "";
         detailCloseEl.hidden = Boolean(CONFIG.align);
+        if (detailXEl) detailXEl.hidden = Boolean(CONFIG.align);
         detailNoteEl.textContent = "Opening…";
         detailEl.classList.add("is-busy");
     }
@@ -506,9 +513,49 @@ export function startViewer(scene) {
         detailNoteEl.textContent = hotspot?.detail ?? "";
     }
 
+    // A hotspot with `image` instead of `overlayId`: a photograph, shown as a
+    // popup over the view rather than laid into the scene. Not everything is
+    // worth scanning, and a demo of ways to show a vehicle should show this
+    // one too.
+    const photoEl = document.getElementById("photo");
+    const photoImgEl = document.getElementById("photoImg");
+    const photoTitleEl = document.getElementById("photoTitle");
+    const photoNoteEl = document.getElementById("photoNote");
+    const photoCloseEl = document.getElementById("photoClose");
+
+    function openPhoto(hotspot) {
+        if (!photoEl) return;
+        hotspots.setEnabled(false);
+        photoTitleEl.textContent = hotspot.label ?? "";
+        photoNoteEl.textContent = hotspot.detail ?? "";
+        photoImgEl.alt = hotspot.label ?? "";
+        photoEl.classList.add("is-busy");
+        photoImgEl.onload = () => photoEl.classList.remove("is-busy");
+        photoImgEl.src = hotspot.image;
+        photoEl.hidden = false;
+    }
+
+    function closePhoto() {
+        if (!photoEl || photoEl.hidden) return false;
+        photoEl.hidden = true;
+        hotspots.setEnabled(true);
+        return true;
+    }
+
+    photoCloseEl?.addEventListener("click", closePhoto);
+    document.getElementById("photoX")?.addEventListener("click", closePhoto);
+    // A click on the dimmed background closes it too; a click on the picture
+    // does not.
+    photoEl?.addEventListener("click", (event) => {
+        if (event.target === photoEl) closePhoto();
+    });
+
     detailCloseEl?.addEventListener("click", closeDetail);
+    detailXEl?.addEventListener("click", closeDetail);
     window.addEventListener("keydown", (event) => {
-        if (event.key === "Escape") closeDetail();
+        if (event.key !== "Escape") return;
+        if (closePhoto()) return;
+        closeDetail();
     });
 
     // ?align=<overlay id>. Opens that overlay straight away and binds the keys
@@ -784,11 +831,8 @@ export function startViewer(scene) {
     // Readout
     // -----------------------------------------------------------------------
 
-    // H hides it. Worth having while the framing and the up axis are still
-    // being settled, and worth hiding before the link goes to anyone.
-    window.addEventListener("keydown", (event) => {
-        if (event.key.toLowerCase() === "h") hudEl.hidden = !hudEl.hidden;
-    });
+    // Hidden from visitors. ?hud=1 brings it back for checking the frame
+    // budget; there is no key for it any more.
 
     let frames = 0;
     let lastHud = 0;

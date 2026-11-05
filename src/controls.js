@@ -26,7 +26,11 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 const PITCH_LIMIT = THREE.MathUtils.degToRad(88);
 
 // The keys that mean "forward", and so the ones a double tap can sprint on.
-const FORWARD_KEYS = ["w", "arrowup"];
+// Not the up arrow: in walk mode that raises the eye rather than moving it.
+const FORWARD_KEYS = ["w"];
+
+// How fast the up and down arrows raise and lower the eye, in metres a second.
+const HEIGHT_SPEED = 0.8;
 
 // Horizontal field of view, which the vertical one and the window's shape
 // decide between them. On a wide window it is the roomier of the two, which
@@ -269,7 +273,8 @@ export function createControls({ camera, renderer, bounds, config }) {
         velocity.set(0, 0, 0);
     }
 
-    // What F does.
+    // Switching between the two. No key does this any more — visitors stay
+    // in walk mode — but the console and start.mode still can.
     function setMode(next) {
         if (next === mode) return;
         if (next === "walk") {
@@ -308,10 +313,6 @@ export function createControls({ camera, renderer, bounds, config }) {
             lastForwardTap = now;
         }
 
-        if (key === "f") {
-            setMode(mode === "walk" ? "orbit" : "walk");
-            return;
-        }
         if (key === "r") {
             // Back to the opening pose, whichever mode that is.
             reset();
@@ -420,16 +421,22 @@ export function createControls({ camera, renderer, bounds, config }) {
         camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, 0, "YXZ"));
 
         camera.getWorldDirection(forward);
+
+        // Walking stays at one height. The mouse only aims the view: looking
+        // down at a panel and pressing W carries you towards it across the
+        // floor, not down into it. So forward is the view direction flattened
+        // onto the horizontal, and the eye height is its own control — the up
+        // and down arrows — for when a different one is worth trying.
+        forward.y = 0;
+        if (forward.lengthSq() < 1e-6) forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+        forward.normalize();
         right.crossVectors(forward, up).normalize();
 
         desired.set(0, 0, 0);
-        if (held("w", "arrowup")) desired.add(forward);
-        if (held("s", "arrowdown")) desired.sub(forward);
+        if (held("w")) desired.add(forward);
+        if (held("s")) desired.sub(forward);
         if (held("d", "arrowright")) desired.add(right);
         if (held("a", "arrowleft")) desired.sub(right);
-        if (held("e", " ")) desired.y += 1;
-        // Not shift: it is half of every shortcut on the machine.
-        if (held("q", "c")) desired.y -= 1;
 
         if (desired.lengthSq() > 0) {
             const speed = sprinting
@@ -437,6 +444,11 @@ export function createControls({ camera, renderer, bounds, config }) {
                 : config.walkSpeed;
             desired.normalize().multiplyScalar(speed);
         }
+
+        let lift = 0;
+        if (held("arrowup")) lift += 1;
+        if (held("arrowdown")) lift -= 1;
+        desired.y = lift * HEIGHT_SPEED;
 
         // Ramp towards the stick rather than snapping to it: a hard start and
         // stop on a mouse-look camera is unpleasant to watch, let alone to use.
