@@ -645,13 +645,43 @@ body {
     background: var(--panel);
 }
 
+#photoFrame {
+    position: relative;
+    min-height: 0;
+    overflow: hidden;
+    background: #000;
+}
+
 #photoImg {
     display: block;
-    min-height: 0;
     max-width: 100%;
     max-height: calc(100vh - 32px - 56px);
     object-fit: contain;
-    background: #000;
+    cursor: zoom-in;
+    /* The zoom is a scale about the pointer: transform-origin follows it, so
+       the spot under the cursor stays put and moving to an edge of the frame
+       shows that edge of the photo. Only the scale is eased; easing the
+       origin as well would leave the view trailing the hand. */
+    transform-origin: 50% 50%;
+    transition: transform 220ms ease-out;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+#photo.is-zoomed #photoImg {
+    cursor: zoom-out;
+}
+
+#photoZoomHint {
+    opacity: 0.5;
+    font-size: 11px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    #photoImg {
+        transition: none;
+    }
 }
 
 /* Until the picture arrives there is nothing to size the frame by, so give

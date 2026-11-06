@@ -43,11 +43,16 @@
         <div id="photo" hidden>
             <figure id="photoFigure">
                 <button id="photoX" class="close-x" type="button" aria-label="Close photo">&times;</button>
-                <img id="photoImg" alt="" />
+                <!-- Clipping frame for the zoom: click the photo to magnify
+                     it, move to look around, click again to zoom out. -->
+                <div id="photoFrame">
+                    <img id="photoImg" alt="" />
+                </div>
                 <figcaption>
                     <span id="photoText">
                         <strong id="photoTitle"></strong>
                         <span id="photoNote"></span>
+                        <span id="photoZoomHint">Click the photo to zoom in</span>
                     </span>
                     <button id="photoClose" type="button">Close <kbd>Esc</kbd></button>
                 </figcaption>

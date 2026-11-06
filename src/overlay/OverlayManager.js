@@ -124,9 +124,10 @@ export async function createOverlayManager({
         }
     }
 
-    // Captures are fetched the first time they are asked for, not at startup:
-    // the vehicle is already 86 MB and an overlay nobody opens should cost
-    // nothing.
+    // Captures are fetched the first time they are asked for, or by
+    // preload() once the vehicle has loaded — whichever comes first. Not at
+    // startup: they would compete with the vehicle's 86 MB for bandwidth and
+    // the decode worker, and the vehicle is what the visitor is waiting for.
     function ensureLoaded(entry) {
         if (entry.mesh || entry.loading) return entry.loading;
         entry.loading = new Promise((resolve) => {
@@ -219,6 +220,17 @@ export async function createOverlayManager({
             const anyOpen = [...overlays.values()].some((e) => e.target > 0.5);
             for (const entry of overlays.values()) {
                 startFade(entry, anyOpen ? 0 : 1, duration);
+            }
+        },
+
+        // Load every overlay in the background, one after another, so the
+        // first open is a crossfade rather than a wait. A loaded overlay
+        // stays out of the scene graph until it is opened, so it costs
+        // memory but no draw time. Overlays already loaded or loading are
+        // skipped, and one that fails does not stop the rest.
+        async preload() {
+            for (const entry of overlays.values()) {
+                await ensureLoaded(entry);
             }
         },
 

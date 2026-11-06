@@ -372,6 +372,9 @@ export function startViewer(scene) {
                 });
             }
             if (CONFIG.align) startAligning();
+            // Now that the vehicle is in, fetch the detail captures quietly,
+            // so opening a hotspot the first time does not wait on a download.
+            overlaysReady.then((o) => o?.preload());
         },
     });
     world.add(splats);
@@ -522,6 +525,49 @@ export function startViewer(scene) {
     const photoTitleEl = document.getElementById("photoTitle");
     const photoNoteEl = document.getElementById("photoNote");
     const photoCloseEl = document.getElementById("photoClose");
+    const photoZoomHintEl = document.getElementById("photoZoomHint");
+
+    // Click the photo to zoom in on the spot clicked, move to look around,
+    // click again to come back out. Zoomed to the photo's own resolution, so
+    // every pixel of it is on screen — at least 2x, so a small window still
+    // gets a useful magnification, and at most 4x, past which a 2560 px copy
+    // is only showing its own blur.
+    let photoZoom = 1;
+
+    function aimPhotoZoom(event) {
+        const box = photoImgEl.getBoundingClientRect();
+        // The box is the scaled one while zoomed, but the fraction across it
+        // is the same either way, which is all transform-origin wants.
+        const x = THREE.MathUtils.clamp((event.clientX - box.left) / box.width, 0, 1);
+        const y = THREE.MathUtils.clamp((event.clientY - box.top) / box.height, 0, 1);
+        photoImgEl.style.transformOrigin = `${(x * 100).toFixed(2)}% ${(y * 100).toFixed(2)}%`;
+    }
+
+    function setPhotoZoom(next, event) {
+        photoZoom = next;
+        if (event) aimPhotoZoom(event);
+        photoImgEl.style.transform = next > 1 ? `scale(${next.toFixed(3)})` : "";
+        photoEl.classList.toggle("is-zoomed", next > 1);
+        if (photoZoomHintEl) {
+            photoZoomHintEl.textContent =
+                next > 1
+                    ? "Move to look around · click to zoom out"
+                    : "Click the photo to zoom in";
+        }
+    }
+
+    photoImgEl?.addEventListener("click", (event) => {
+        if (photoEl.classList.contains("is-busy")) return;
+        if (photoZoom > 1) {
+            setPhotoZoom(1);
+            return;
+        }
+        const native = photoImgEl.naturalWidth / Math.max(1, photoImgEl.clientWidth);
+        setPhotoZoom(THREE.MathUtils.clamp(native, 2, 4), event);
+    });
+    photoImgEl?.addEventListener("pointermove", (event) => {
+        if (photoZoom > 1) aimPhotoZoom(event);
+    });
 
     function openPhoto(hotspot) {
         if (!photoEl) return;
@@ -529,6 +575,8 @@ export function startViewer(scene) {
         photoTitleEl.textContent = hotspot.label ?? "";
         photoNoteEl.textContent = hotspot.detail ?? "";
         photoImgEl.alt = hotspot.label ?? "";
+        setPhotoZoom(1);
+        photoImgEl.style.transformOrigin = "";
         photoEl.classList.add("is-busy");
         photoImgEl.onload = () => photoEl.classList.remove("is-busy");
         photoImgEl.src = hotspot.image;
